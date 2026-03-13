@@ -1,0 +1,19 @@
+@
+# Build artifacts
+*.exe
+*.o
+obj/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test/Source files to ignore if needed
+*.iqm
+*.glb
+*.fbx
+*.cfg
+*.skin
+*.tga
+!CONVERT.bat
+

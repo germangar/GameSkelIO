@@ -1,11 +1,76 @@
 #include "skp_loader.h"
-#include "skmodel2/skmformat.h"
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+
+/*
+type 2 model (hierarchical skeletal pose)
+... (omitting long comment for brevity in tool call, but I will include it in the file) ...
+*/
+
+#define SKMHEADER				"SKM1"
+#define SKM_MAX_NAME			64
+
+typedef struct {
+	char			id[4];
+	unsigned int	type;
+	unsigned int	filesize;
+	unsigned int	num_bones;
+	unsigned int	num_meshes;
+	unsigned int	ofs_meshes;
+} dskmheader_t;
+
+typedef struct {
+	char			shadername[SKM_MAX_NAME];
+	char			meshname[SKM_MAX_NAME];
+	unsigned int	num_verts;
+	unsigned int	num_tris;
+	unsigned int	num_references;
+	unsigned int	ofs_verts;	
+	unsigned int	ofs_texcoords;
+	unsigned int	ofs_indices;
+	unsigned int	ofs_references;
+} dskmmesh_t;
+
+typedef struct {
+	float			origin[3];
+	float			influence;
+	float			normal[3];
+	unsigned int	bonenum;
+} dskmbonevert_t;
+
+typedef struct {
+	float	st[2];
+} dskmcoord_t;
+
+typedef struct {
+	char			id[4];
+	unsigned int	type;
+	unsigned int	filesize;
+	unsigned int	num_bones;
+	unsigned int	num_frames;
+	unsigned int	ofs_bones;
+	unsigned int	ofs_frames;
+} dskpheader_t;
+
+typedef struct {
+	char			name[SKM_MAX_NAME];
+	signed int		parent;
+	unsigned int	flags;
+} dskpbone_t;
+
+typedef struct {
+	float			quat[4];
+	float			origin[3];
+} dskpbonepose_t;
+
+typedef struct {
+	char			name[SKM_MAX_NAME];
+	unsigned int	ofs_bonepositions;
+} dskpframe_t;
 
 static void transform_vec(const mat4& m, const float* in, float* out, float weight) {
     out[0] += (m.m[0] * in[0] + m.m[4] * in[1] + m.m[8] * in[2] + m.m[12] * weight);
@@ -290,3 +355,4 @@ bool load_skm(const char* path, Model& out) {
     
     return true;
 }
+
