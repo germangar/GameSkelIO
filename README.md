@@ -2,7 +2,6 @@
 
 ## 1. Project Overview
 GameSekIO is a small model converter targetting typical skeletal animated models used in games.
-Supported formats are: GLB, FBX and IQM. It can also read the old legacy format SKM.
 
 ## 2. Supported Formats
 - **IQM**: Read/Write - Inter-Quake Model (Z-up, "Backward" CW winding).
