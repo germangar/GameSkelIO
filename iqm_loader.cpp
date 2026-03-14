@@ -57,6 +57,7 @@ bool load_iqm(const char* path, Model& out) {
         for (uint32_t i = 0; i < hdr.num_meshes; ++i) {
             out.meshes[i].name = text_pool + iqm_meshes[i].name;
             out.meshes[i].material_name = text_pool + iqm_meshes[i].material;
+            out.meshes[i].color_map = out.meshes[i].material_name; // Default to material name as color map
             out.meshes[i].first_vertex = iqm_meshes[i].first_vertex;
             out.meshes[i].num_vertexes = iqm_meshes[i].num_vertexes;
             out.meshes[i].first_triangle = iqm_meshes[i].first_triangle;

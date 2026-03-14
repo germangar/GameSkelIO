@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <cstring>
 
 bool load_fbx(const char* path, Model& out) {
     ufbx_load_opts opts = { 0 };
@@ -76,9 +77,26 @@ bool load_fbx(const char* path, Model& out) {
         out_mesh.num_vertexes = (uint32_t)fmesh->num_indices;
         out_mesh.num_triangles = (uint32_t)fmesh->num_indices / 3;
         
-        // Find material name
+        // Find material and texture maps
         if (fmesh->materials.count > 0 && fmesh->materials[0]) {
-            out_mesh.material_name = fmesh->materials[0]->name.data;
+            ufbx_material* mat = fmesh->materials[0];
+            out_mesh.material_name = mat->name.data;
+
+            auto get_fbx_tex = [](ufbx_material* m, ufbx_material_map& map, const char* legacy_prop) -> std::string {
+                if (map.texture) return map.texture->filename.data;
+                // Fallback to searching by property name (legacy FBX)
+                for (size_t i = 0; i < m->textures.count; ++i) {
+                    if (m->textures[i].material_prop.data && strcmp(m->textures[i].material_prop.data, legacy_prop) == 0) {
+                        return m->textures[i].texture->filename.data;
+                    }
+                }
+                return "";
+            };
+
+            out_mesh.color_map = get_fbx_tex(mat, mat->pbr.base_color, "DiffuseColor");
+            out_mesh.normal_map = get_fbx_tex(mat, mat->pbr.normal_map, "NormalMap");
+            out_mesh.roughness_map = get_fbx_tex(mat, mat->pbr.roughness, "RoughnessSource");
+            out_mesh.occlusion_map = get_fbx_tex(mat, mat->pbr.ambient_occlusion, "OcclusionSource");
         } else {
             out_mesh.material_name = "default";
         }

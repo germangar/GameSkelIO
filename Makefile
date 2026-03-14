@@ -5,7 +5,7 @@ CXXFLAGS = -O2 -Wall -std=c++17 -Ilibs
 CFLAGS   = -O2 -Wall -Ilibs
 LDFLAGS  =
 
-TARGET = iqm2glb.exe
+TARGET = gskelconv.exe
 OBJDIR = obj
 
 SRCS   = main.cpp \

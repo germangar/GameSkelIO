@@ -50,6 +50,10 @@ struct AnimationDef {
 struct Mesh {
     std::string name;
     std::string material_name;
+    std::string color_map;
+    std::string normal_map;
+    std::string roughness_map;
+    std::string occlusion_map;
     uint32_t first_vertex, num_vertexes;
     uint32_t first_triangle, num_triangles;
 };

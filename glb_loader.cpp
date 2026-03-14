@@ -60,6 +60,22 @@ bool load_glb(const char* path, Model& out) {
 
             Mesh m;
             m.name = mesh->name ? mesh->name : "mesh";
+            if (prim->material) {
+                m.material_name = prim->material->name ? prim->material->name : "material";
+                auto get_texture_uri = [](cgltf_texture_view& view) -> std::string {
+                    if (view.texture && view.texture->image && view.texture->image->uri) {
+                        return view.texture->image->uri;
+                    }
+                    return "";
+                };
+                if (prim->material->has_pbr_metallic_roughness) {
+                    m.color_map = get_texture_uri(prim->material->pbr_metallic_roughness.base_color_texture);
+                    m.roughness_map = get_texture_uri(prim->material->pbr_metallic_roughness.metallic_roughness_texture);
+                }
+                m.normal_map = get_texture_uri(prim->material->normal_texture);
+                m.occlusion_map = get_texture_uri(prim->material->occlusion_texture);
+            }
+
             m.first_vertex = (uint32_t)out.positions.size() / 3;
             m.first_triangle = (uint32_t)out.indices.size() / 3;
 

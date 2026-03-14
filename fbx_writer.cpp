@@ -162,7 +162,29 @@ bool write_fbx(const char* path, const Model& in, bool write_mesh, bool write_an
     std::map<int, int64_t> joint_to_attr_id;
     int64_t mesh_model_id = generate_id();
     int64_t mesh_geom_id = generate_id();
-    int64_t material_id = generate_id();
+    struct FBXMaterial { int64_t id; int64_t diffuse_id; int64_t normal_id; int64_t rough_id; int64_t occ_id; };
+    std::map<std::string, FBXMaterial> materials;
+    std::map<std::string, int64_t> texture_to_id;
+
+    auto add_tex = [&](const std::string& path) {
+        if (path.empty()) return (int64_t)0;
+        if (texture_to_id.count(path)) return texture_to_id[path];
+        int64_t id = generate_id();
+        texture_to_id[path] = id;
+        return id;
+    };
+
+    for (const auto& m : in.meshes) {
+        if (materials.count(m.material_name)) continue;
+        FBXMaterial fm;
+        fm.id = generate_id();
+        fm.diffuse_id = add_tex(m.color_map);
+        fm.normal_id = add_tex(m.normal_map);
+        fm.rough_id = add_tex(m.roughness_map);
+        fm.occ_id = add_tex(m.occlusion_map);
+        materials[m.material_name] = fm;
+    }
+
     int64_t skin_id = generate_id();
     std::vector<int64_t> cluster_ids;
     std::vector<int64_t> valid_cluster_ids;
@@ -304,12 +326,37 @@ bool write_fbx(const char* path, const Model& in, bool write_mesh, bool write_an
         Fbx::Record* p70_mesh = new Fbx::Record("Properties70", mod_mesh);
         add_prop70(p70_mesh, "RotationOrder", "enum", "", "", (int32_t)0);
 
-        // Material
-        Fbx::Record* mat = new Fbx::Record("Material", objs);
-        mat->properties().insert(new Fbx::Property(material_id));
-        mat->properties().insert(new Fbx::Property("DefaultMaterial" + std::string("\x00\x01", 2) + "Material"));
-        mat->properties().insert(new Fbx::Property(""));
-        (*mat->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)102));
+        // Materials
+        for (auto& kv : materials) {
+            Fbx::Record* mat = new Fbx::Record("Material", objs);
+            mat->properties().insert(new Fbx::Property(kv.second.id));
+            mat->properties().insert(new Fbx::Property(sanitize(kv.first) + std::string("\x00\x01", 2) + "Material"));
+            mat->properties().insert(new Fbx::Property(""));
+            (*mat->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)102));
+            (*mat->insert(new Fbx::Record("ShadingModel")))->properties().insert(new Fbx::Property("phong"));
+            (*mat->insert(new Fbx::Record("MultiLayer")))->properties().insert(new Fbx::Property((int32_t)0));
+        }
+
+        // Textures
+        for (auto& kv : texture_to_id) {
+            Fbx::Record* tex = new Fbx::Record("Texture", objs);
+            tex->properties().insert(new Fbx::Property(kv.second));
+            tex->properties().insert(new Fbx::Property(sanitize(kv.first) + std::string("\x00\x01", 2) + "Texture"));
+            tex->properties().insert(new Fbx::Property(""));
+
+            Fbx::Record* p70_tex = new Fbx::Record("Properties70", tex);
+            add_prop70(p70_tex, "CurrentTextureBlendMode", "enum", "", "", (int32_t)0);
+            add_prop70(p70_tex, "UVSet", "KString", "", "", "map1");
+
+            (*tex->insert(new Fbx::Record("FileName")))->properties().insert(new Fbx::Property(kv.first));
+            (*tex->insert(new Fbx::Record("RelativeFilename")))->properties().insert(new Fbx::Property(kv.first));
+            Fbx::Record* m_trans = *tex->insert(new Fbx::Record("ModelUVTranslation"));
+            m_trans->properties().insert(new Fbx::Property((double)0));
+            m_trans->properties().insert(new Fbx::Property((double)0));
+            Fbx::Record* m_scaling = *tex->insert(new Fbx::Record("ModelUVScaling"));
+            m_scaling->properties().insert(new Fbx::Property((double)1));
+            m_scaling->properties().insert(new Fbx::Property((double)1));
+        }
 
         // Skin & Clusters
         Fbx::Record* skin_rec = new Fbx::Record("Deformer", objs);
@@ -590,7 +637,13 @@ for (size_t i = 0; i < in.joints.size(); ++i) {
     if (write_mesh) {
         add_c("OO", mesh_model_id, 0); // Mesh to Scene Root (0)
         add_c("OO", mesh_geom_id, mesh_model_id);
-        add_c("OO", material_id, mesh_model_id);
+        
+        for (auto& kv : materials) {
+            add_c("OO", kv.second.id, mesh_model_id);
+            if (kv.second.diffuse_id) add_c("OP", kv.second.diffuse_id, kv.second.id, "DiffuseColor");
+            if (kv.second.normal_id) add_c("OP", kv.second.normal_id, kv.second.id, "NormalMap");
+        }
+        
         add_c("OO", skin_id, mesh_geom_id);
         for (size_t i = 0; i < valid_cluster_ids.size(); ++i) {
             add_c("OO", valid_cluster_ids[i], skin_id);
