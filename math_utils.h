@@ -78,75 +78,43 @@ inline float asin_clamped(float v) {
 // 2. Evaluate two "gimbal-stabilized" candidates where Z is pinned to prev_euler[2].
 // 3. From these 4 candidates, select the one with the smallest coordinate distance in 3D Euler space.
 inline void quat_to_euler_near(const float* q, float* euler, const float* prev_euler) {
-    float x = q[0], y = q[1], z = q[2], w = q[3];
-    float m[3][3];
-    m[0][0] = 1.0f - 2.0f * (y*y + z*z);
-    m[0][1] = 2.0f * (x*y - z*w);
-    m[0][2] = 2.0f * (x*z + y*w);
-    m[1][0] = 2.0f * (x*y + z*w);
-    m[1][1] = 1.0f - 2.0f * (x*x + z*z);
-    m[1][2] = 2.0f * (y*z - x*w);
-    m[2][0] = 2.0f * (x*z - y*w);
-    m[2][1] = 2.0f * (y*z + x*w);
-    m[2][2] = 1.0f - 2.0f * (x*x + y*y);
+    // 1. Get the standard Euler angles for this quaternion
+    float e[3];
+    quat_to_euler(q, e);
+    
+    // 2. An Euler rotation (X, Y, Z) has a mathematical alias:
+    //    (X + 180, 180 - Y, Z + 180) modulo 360
+    float alias[3];
+    alias[0] = e[0] + 180.0f;
+    alias[1] = 180.0f - e[1];
+    alias[2] = e[2] + 180.0f;
 
-    const float RAD2DEG = 180.0f / 3.1415926535f;
-    float sy = -m[2][0];
-    float x1, y1, z1;
-
-    // Standard branches
-    y1 = asin_clamped(sy) * RAD2DEG;
-    x1 = std::atan2(m[2][1], m[2][2]) * RAD2DEG;
-    z1 = std::atan2(m[1][0], m[0][0]) * RAD2DEG;
-
-    float x2 = x1 + 180.0f;
-    float y2 = 180.0f - y1;
-    float z2 = z1 + 180.0f;
-
-    // Gimbal-stabilized branches (attempt to recover continuity when atan2 becomes unstable)
-    float x3 = x1, y3 = y1, z3 = z1;
-    float x4 = x2, y4 = y2, z4 = z2;
-
-    if (std::abs(sy) > 0.5f) {
-        float pz = prev_euler[2];
-        z3 = pz;
-        if (sy > 0) x3 = std::atan2(m[0][1], m[1][1]) * RAD2DEG + pz;
-        else x3 = std::atan2(-m[0][1], m[1][1]) * RAD2DEG - pz;
-        
-        z4 = pz;
-        // Branch 2 is implicitly handled by the distance check below
-    }
-
-    auto wrap_near = [](float v, float target) {
-        float res = v;
-        float diff = res - target;
-        while (diff > 180.0f) { res -= 360.0f; diff -= 360.0f; }
-        while (diff < -180.0f) { res += 360.0f; diff += 360.0f; }
-        return res;
+    // Helper to wrap a value to the nearest multiple of 360 around a target
+    auto wrap_near = [](float val, float target) {
+        float diff = val - target;
+        while (diff > 180.0f) { val -= 360.0f; diff -= 360.0f; }
+        while (diff < -180.0f) { val += 360.0f; diff += 360.0f; }
+        return val;
     };
 
-    auto d2 = [](float ax, float ay, float az, const float* p) {
-        float dx = ax - p[0], dy = ay - p[1], dz = az - p[2];
+    // Helper for squared Euclidean distance
+    auto d2 = [](const float* a, const float* p) {
+        float dx = a[0] - p[0];
+        float dy = a[1] - p[1];
+        float dz = a[2] - p[2];
         return dx*dx + dy*dy + dz*dz;
     };
 
-    float c[4][3] = {
-        {wrap_near(x1, prev_euler[0]), wrap_near(y1, prev_euler[1]), wrap_near(z1, prev_euler[2])},
-        {wrap_near(x2, prev_euler[0]), wrap_near(y2, prev_euler[1]), wrap_near(z2, prev_euler[2])},
-        {wrap_near(x3, prev_euler[0]), wrap_near(y3, prev_euler[1]), wrap_near(z3, prev_euler[2])},
-        {wrap_near(x4, prev_euler[0]), wrap_near(y4, prev_euler[1]), wrap_near(z4, prev_euler[2])}
-    };
+    // Wrap both the standard angles and the alias near the previous frame's angles
+    float c1[3] = { wrap_near(e[0], prev_euler[0]), wrap_near(e[1], prev_euler[1]), wrap_near(e[2], prev_euler[2]) };
+    float c2[3] = { wrap_near(alias[0], prev_euler[0]), wrap_near(alias[1], prev_euler[1]), wrap_near(alias[2], prev_euler[2]) };
 
-    int best = 0;
-    float min_d = d2(c[0][0], c[0][1], c[0][2], prev_euler);
-    for (int i = 1; i < 4; ++i) {
-        float d = d2(c[i][0], c[i][1], c[i][2], prev_euler);
-        if (d < min_d) { min_d = d; best = i; }
+    // Choose the one that minimizes the jump from the previous frame
+    if (d2(c1, prev_euler) < d2(c2, prev_euler)) {
+        euler[0] = c1[0]; euler[1] = c1[1]; euler[2] = c1[2];
+    } else {
+        euler[0] = c2[0]; euler[1] = c2[1]; euler[2] = c2[2];
     }
-
-    euler[0] = c[best][0]; 
-    euler[1] = c[best][1]; 
-    euler[2] = c[best][2];
 }
 
 
