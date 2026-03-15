@@ -1,0 +1,25 @@
+Animation Configuration Revamp Plan
+
+1. Public API Enhancement (gameskelio.h)
+- Define `gs_legacy_framegroup`: A struct containing `const char* name`, `int first_frame`, `int num_frames`, and `float fps`.
+- Update `gsk_load_iqm_buffer` signature to include `const gs_legacy_framegroup* anims` and `uint32_t num_anims`.
+
+2. Secure Internal Loader (iqm_loader.cpp)
+- Refactor `load_iqm_from_memory` to accept the optional override list.
+- Implementation of Validation Pass:
+    - Cap the number of overrides to a reasonable limit (e.g., 1024).
+    - For each override:
+        - If `first_frame` >= total model frames, reject/skip the animation.
+        - If `first_frame + num_frames` > total model frames, clamp `num_frames` to fit.
+- Use the validated overrides to unpack sparse tracks, skipping the IQM header's internal animations if overrides are provided.
+
+3. Bridge Logic (gameskelio.cpp)
+- Update the `extern "C"` wrapper for `gsk_load_iqm_buffer` to pass the new parameters to the internal C++ function.
+
+4. Converter Update (main.c)
+- Implement a robust `animation.cfg` parser within `main.c`.
+- Update the IQM loading block:
+    - Manually read the file into a buffer.
+    - Parse the `.cfg` into a local array of `gs_legacy_framegroup`.
+    - Call `gsk_load_iqm_buffer` with both the data buffer and the overrides.
+- This demonstrates the library's ability to act as a transcoder with external metadata.

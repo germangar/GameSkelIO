@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include "anim_cfg.h"
 
 #define SKMHEADER                               "SKM1"
 #define SKM_MAX_NAME                    64
@@ -107,10 +108,29 @@ bool load_skm(const char* path, Model& out) {
     f_skm.read(skm_buf.data(), skm_size);
     f_skm.close();
 
-    return load_skm_from_memory(skm_buf.data(), skm_size, skp_buf.data(), skp_size, out);
+    // Check for animation.cfg alongside the file
+    std::string cfg_path = find_animation_cfg(skm_path);
+    std::vector<gs_legacy_framegroup> overrides;
+    
+    if (!cfg_path.empty()) {
+        std::cout << "Found animation config: " << cfg_path << std::endl;
+        std::vector<AnimConfigEntry> entries = parse_animation_cfg(cfg_path);
+        for (const auto& entry : entries) {
+            gs_legacy_framegroup fg;
+            fg.name = entry.name.c_str(); 
+            fg.first_frame = entry.first_frame;
+            fg.num_frames = entry.last_frame - entry.first_frame + 1;
+            fg.fps = entry.fps;
+            overrides.push_back(fg);
+        }
+    }
+
+    return load_skm_from_memory(skm_buf.data(), skm_size, skp_buf.data(), skp_size, out,
+                                overrides.empty() ? nullptr : overrides.data(),
+                                (uint32_t)overrides.size());
 }
 
-bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp_data, size_t skp_size, Model& out) {
+bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp_data, size_t skp_size, Model& out, const gs_legacy_framegroup* external_anims, uint32_t num_external_anims) {
     if (!skm_data || !skp_data) return false;
 
     const char* skp_buf = (const char*)skp_data;
@@ -250,23 +270,33 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
 
     // Frames
     if (num_frames > 0) {
-        struct TempAnimRange { std::string name; int first, last; float fps; };
-        std::vector<TempAnimRange> ranges;
+        struct TempAnim { std::string name; int first, count; float fps; };
+        std::vector<TempAnim> anims;
 
-        if (out.qfusion) {
-            ranges.push_back({"base", 0, 0, BASE_FPS});
-            ranges.push_back({"STAND_IDLE", 1, 39, BASE_FPS});
+        if (external_anims && num_external_anims > 0) {
+            uint32_t n = (num_external_anims > 1024) ? 1024 : num_external_anims;
+            for (uint32_t i = 0; i < n; ++i) {
+                int first = external_anims[i].first_frame;
+                int count = external_anims[i].num_frames;
+                if (first >= (int)num_frames) continue;
+                if (first < 0) first = 0;
+                if (first + count > (int)num_frames) {
+                    count = (int)num_frames - first;
+                }
+                if (count <= 0) continue;
+                anims.push_back({ external_anims[i].name ? external_anims[i].name : "unnamed", first, count, external_anims[i].fps });
+            }
         } else {
-            ranges.push_back({"all", 0, (int)num_frames - 1, BASE_FPS});
+            anims.push_back({"all", 0, (int)num_frames, BASE_FPS});
         }
 
-        for (const auto& range : ranges) {
+        for (const auto& a : anims) {
             AnimationDef ad;
-            ad.name = range.name;
+            ad.name = a.name;
             ad.bones.resize(num_bones);
-            for (int f = range.first; f <= range.last; ++f) {      
+            for (int f = a.first; f < a.first + a.count; ++f) {      
                 if (f < 0 || f >= (int)num_frames) continue;
-                double time = (double)(f - range.first) / range.fps;     
+                double time = (double)(f - a.first) / a.fps;     
 
                 for (uint32_t p = 0; p < num_bones; ++p) {
                     BoneAnim& ba = ad.bones[p];

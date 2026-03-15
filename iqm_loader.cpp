@@ -18,20 +18,28 @@ bool load_iqm(const char* path, Model& out) {
 
     // Check for animation.cfg alongside the file
     std::string cfg_path = find_animation_cfg(path);
-    bool success = load_iqm_from_memory(buffer.data(), file_size, out);
+    std::vector<gs_legacy_framegroup> overrides;
     
-    if (success && !cfg_path.empty()) {
+    if (!cfg_path.empty()) {
         std::cout << "Found animation config: " << cfg_path << std::endl;
         std::vector<AnimConfigEntry> entries = parse_animation_cfg(cfg_path);
-        if (!entries.empty()) {
-            // Note: External config applying logic goes here if needed.
+        for (const auto& entry : entries) {
+            gs_legacy_framegroup fg;
+            fg.name = entry.name.c_str(); // Warning: temporary strings if AnimConfigEntry is destroyed
+            fg.first_frame = entry.first_frame;
+            fg.num_frames = entry.last_frame - entry.first_frame + 1;
+            fg.fps = entry.fps;
+            overrides.push_back(fg);
         }
     }
 
-    return success;
+    // Pass the overrides to the memory loader
+    return load_iqm_from_memory(buffer.data(), file_size, out, 
+                                overrides.empty() ? nullptr : overrides.data(), 
+                                (uint32_t)overrides.size());
 }
 
-bool load_iqm_from_memory(const void* data, size_t size, Model& out) {
+bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_legacy_framegroup* external_anims, uint32_t num_external_anims) {
     if (!data || size < sizeof(iqmheader)) return false;
 
     const char* buffer = (const char*)data;
@@ -172,28 +180,46 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out) {
             }
         }
 
-        std::vector<AnimConfigEntry> entries;
-        if (hdr->num_anims > 0) {
+        // Collect animation definitions
+        struct TempAnim { std::string name; int first, count; float fps; };
+        std::vector<TempAnim> anims;
+
+        if (external_anims && num_external_anims > 0) {
+            // Cap at 1024 to prevent abuse
+            uint32_t n = (num_external_anims > 1024) ? 1024 : num_external_anims;
+            for (uint32_t i = 0; i < n; ++i) {
+                // Validation Pass
+                int first = external_anims[i].first_frame;
+                int count = external_anims[i].num_frames;
+                
+                // Reject if starting out of bounds
+                if (first >= (int)hdr->num_frames) continue;
+                if (first < 0) first = 0;
+                
+                // Clamp count
+                if (first + count > (int)hdr->num_frames) {
+                    count = (int)hdr->num_frames - first;
+                }
+                if (count <= 0) continue;
+
+                anims.push_back({ external_anims[i].name ? external_anims[i].name : "unnamed", first, count, external_anims[i].fps });
+            }
+        } else if (hdr->num_anims > 0) {
             const iqmanim* iqm_anims = (const iqmanim*)(buffer + hdr->ofs_anims);
             for (uint32_t i = 0; i < hdr->num_anims; ++i) {
-                AnimConfigEntry ace;
-                ace.name = text_pool + iqm_anims[i].name;
-                ace.first_frame = iqm_anims[i].first_frame;
-                ace.last_frame = iqm_anims[i].first_frame + iqm_anims[i].num_frames - 1;
-                ace.fps = (iqm_anims[i].framerate > 0.0f) ? iqm_anims[i].framerate : BASE_FPS;
-                entries.push_back(ace);
+                anims.push_back({ text_pool + iqm_anims[i].name, iqm_anims[i].first_frame, iqm_anims[i].num_frames, (iqm_anims[i].framerate > 0.0f) ? iqm_anims[i].framerate : BASE_FPS });
             }
         } else {
-            entries.push_back({"base", 0, (int)hdr->num_frames - 1, 0, BASE_FPS});
+            anims.push_back({ "base", 0, (int)hdr->num_frames, BASE_FPS });
         }
 
-        for (const auto& ace : entries) {
+        for (const auto& a : anims) {
             AnimationDef ad;
-            ad.name = ace.name;
+            ad.name = a.name;
             ad.bones.resize(out.joints.size());
-            for (int f = ace.first_frame; f <= ace.last_frame; ++f) {
+            for (int f = a.first; f < a.first + a.count; ++f) {
                 if (f < 0 || f >= (int)hdr->num_frames) continue;
-                double time = (double)(f - ace.first_frame) / ace.fps;
+                double time = (double)(f - a.first) / a.fps;
                 float* fptr = dense_frames.data() + (size_t)f * hdr->num_poses * 10;
 
                 for (size_t ji = 0; ji < out.joints.size(); ++ji) {

@@ -56,6 +56,63 @@ static bool ends_with(const char* str, const char* suffix) {
     return true;
 }
 
+static void* read_file_to_buffer(const char* path, size_t* out_size) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    *out_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    void* buf = malloc(*out_size);
+    fread(buf, 1, *out_size, f);
+    fclose(f);
+    return buf;
+}
+
+static gs_legacy_framegroup* parse_cfg(const char* path, uint32_t* out_count) {
+    FILE* f = fopen(path, "r");
+    if (!f) return NULL;
+
+    gs_legacy_framegroup* anims = NULL;
+    *out_count = 0;
+
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char* p = line;
+        while (isspace(*p)) p++;
+        if (!*p || !isdigit(*p)) continue;
+
+        int first, last, loop;
+        float fps;
+        int fields = sscanf(p, "%d %d %d %f", &first, &last, &loop, &fps);
+        if (fields < 2) continue;
+
+        char* comment = strstr(p, "//");
+        char* name = NULL;
+        if (comment) {
+            comment += 2;
+            while (isspace(*comment)) comment++;
+            char* end = comment;
+            while (*end && !isspace(*end)) end++;
+            size_t name_len = end - comment;
+            if (name_len > 0) {
+                name = malloc(name_len + 1);
+                memcpy(name, comment, name_len);
+                name[name_len] = '\0';
+            }
+        }
+
+        anims = realloc(anims, (*out_count + 1) * sizeof(gs_legacy_framegroup));
+        anims[*out_count].first_frame = first;
+        anims[*out_count].num_frames = last - first + 1;
+        anims[*out_count].fps = (fields >= 4) ? fps : 30.0f;
+        anims[*out_count].name = name ? name : strdup("unnamed");
+        (*out_count)++;
+    }
+
+    fclose(f);
+    return anims;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <input.iqm/glb/skm> <output.glb/iqm/fbx> [--base] [--anim] [--qfusion]\n", argv[0]);
@@ -76,11 +133,91 @@ int main(int argc, char** argv) {
 
     // Load Phase
     if (ends_with(in_path, ".iqm")) {
-        printf("Loading IQM: %s...\n", in_path);
-        model = gsk_load_iqm(in_path);
+        printf("Loading IQM (via buffer): %s...\n", in_path);
+        size_t size;
+        void* data = read_file_to_buffer(in_path, &size);
+        if (data) {
+            uint32_t num_anims = 0;
+            gs_legacy_framegroup* overrides = NULL;
+            
+            // Priority 1: <model>.cfg
+            char cfg_path[512];
+            strncpy(cfg_path, in_path, sizeof(cfg_path));
+            char* dot = strrchr(cfg_path, '.');
+            if (dot) strcpy(dot, ".cfg");
+            else strcat(cfg_path, ".cfg");
+
+            if (file_exists(cfg_path)) {
+                printf("Found animation config: %s\n", cfg_path);
+                overrides = parse_cfg(cfg_path, &num_anims);
+            } else {
+                // Priority 2: animation.cfg in the same directory
+                char* last_slash = strrchr(cfg_path, '/');
+                char* last_back = strrchr(cfg_path, '\\');
+                char* path_sep = (last_slash > last_back) ? last_slash : last_back;
+                
+                if (path_sep) {
+                    strcpy(path_sep + 1, "animation.cfg");
+                } else {
+                    strcpy(cfg_path, "animation.cfg");
+                }
+
+                if (file_exists(cfg_path)) {
+                    printf("Found animation config: %s\n", cfg_path);
+                    overrides = parse_cfg(cfg_path, &num_anims);
+                }
+            }
+
+            model = gsk_load_iqm_buffer(data, size, overrides, num_anims);
+            
+            free(data);
+            if (overrides) {
+                for (uint32_t i = 0; i < num_anims; ++i) free((void*)overrides[i].name);
+                free(overrides);
+            }
+        }
     } else if (ends_with(in_path, ".skm") || ends_with(in_path, ".skp")) {
-        printf("Loading SKM/SKP: %s...\n", in_path);
-        model = gsk_load_skm(in_path);
+        printf("Loading SKM/SKP (via buffer): %s...\n", in_path);
+        
+        char base_path[512];
+        strncpy(base_path, in_path, sizeof(base_path));
+        char* dot = strrchr(base_path, '.');
+        if (dot) *dot = '\0';
+
+        char skm_path[512], skp_path[512];
+        sprintf(skm_path, "%s.skm", base_path);
+        sprintf(skp_path, "%s.skp", base_path);
+
+        size_t skm_size, skp_size;
+        void* skm_data = read_file_to_buffer(skm_path, &skm_size);
+        void* skp_data = read_file_to_buffer(skp_path, &skp_size);
+
+        if (skm_data && skp_data) {
+            uint32_t num_anims = 0;
+            gs_legacy_framegroup* overrides = NULL;
+            char cfg_path[512];
+            sprintf(cfg_path, "%s.cfg", base_path);
+
+            if (file_exists(cfg_path)) {
+                printf("Found animation config: %s\n", cfg_path);
+                overrides = parse_cfg(cfg_path, &num_anims);
+            } else {
+                sprintf(cfg_path, "animation.cfg"); // Should ideally be in same dir
+                if (file_exists(cfg_path)) {
+                    printf("Found animation config: %s\n", cfg_path);
+                    overrides = parse_cfg(cfg_path, &num_anims);
+                }
+            }
+
+            model = gsk_load_skm_buffer(skm_data, skm_size, skp_data, skp_size, overrides, num_anims);
+
+            free(skm_data);
+            free(skp_data);
+            if (overrides) {
+                for (uint32_t i = 0; i < num_anims; ++i) free((void*)overrides[i].name);
+                free(overrides);
+            }
+        }
     } else if (ends_with(in_path, ".glb") || ends_with(in_path, ".gltf")) {
         printf("Loading GLB (cgltf): %s...\n", in_path);
         model = gsk_load_glb(in_path);

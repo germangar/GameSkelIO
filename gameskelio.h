@@ -78,6 +78,17 @@ typedef struct gs_bone_anim {
     gs_anim_channel scale;
 } gs_bone_anim;
 
+/**
+ * Defines a group of frames for legacy animation formats (like IQM/SKM).
+ * Used to override internal animation definitions via external config files.
+ */
+typedef struct gs_legacy_framegroup {
+    const char* name;
+    int first_frame;
+    int num_frames;
+    float fps;
+} gs_legacy_framegroup;
+
 /** 
  * A named animation clip (e.g., "Run", "Jump").
  * 'bones' is an array of size 'num_bones', matching the model's num_joints.
@@ -132,10 +143,10 @@ typedef struct gs_model {
 // --- Endpoints ---
 
 // Loaders (Buffer-based): Load model from a memory block.
-gs_model* gsk_load_iqm_buffer(const void* data, size_t size);
+gs_model* gsk_load_iqm_buffer(const void* data, size_t size, const gs_legacy_framegroup* anims, uint32_t num_anims);
 gs_model* gsk_load_glb_buffer(const void* data, size_t size);
 gs_model* gsk_load_fbx_buffer(const void* data, size_t size);
-gs_model* gsk_load_skm_buffer(const void* data, size_t size);
+gs_model* gsk_load_skm_buffer(const void* skm_data, size_t skm_size, const void* skp_data, size_t skp_size, const gs_legacy_framegroup* anims, uint32_t num_anims);
 
 // Loaders (Path-based): Helper functions that read a file into memory and call the buffer loaders.
 gs_model* gsk_load_iqm(const char* path);
