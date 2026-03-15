@@ -1,37 +1,42 @@
 # AI Agent Project Guide: GameSkelIO
 
-This document is specifically for AI agents to understand the technical nuances, pitfalls, and architectural decisions of the GameSkelIO project.
+This document is specifically for AI agents to understand the technical nuances, pitfalls, architectural decisions, and the library structure of the GameSkelIO project.
 
-## 1. Core Technical Context
-- **Intermediate Representation (IR)**: Everything centers on the `Model` class in `model.h`.
+## 1. Project Evolution: C Library
+- **Primary Goal**: This project is a **C Library** (`libgameskelio.a`) for 3D model and animation conversion.
+- **Public API**: Use `gameskelio.h`. It defines `extern "C"` functions and C-compatible structs (`gs_model`, `gs_joint`, `gs_mesh`, etc.) to allow integration with C, C++, and other languages (FFI).
+- **Internal Representation (IR)**: Internally, the library still uses the C++ `Model` class in `model.h` for its loaders and writers. The `gameskelio.cpp` wrapper handles the translation between the C `gs_model` and the internal C++ `Model`.
+
+## 2. Core Technical Context
 - **Coordinate System**: Native **Y-Up (Right-Handed)**.
 - **Winding Order**: **Counter-Clockwise (CCW)**.
-- **Animation Architecture**: Sparse, timestamp-based keyframes (seconds). Do NOT bake frames unless explicitly converting to a format that requires it (like IQM, which handles its own baking/quantization in the writer).
+- **Animation Architecture**: Sparse, timestamp-based keyframes (seconds).
+- **Frame-Agnostic IR**: The internal `Model` and the public C API are **frame-agnostic**. They use `double* times` and `float* values` in `gs_anim_channel`.
+- **Local Conversion**: All frame-to-time (and time-to-frame) calculations are handled locally inside specific loaders (IQM, SKM) and writers (IQM). The internal model never sees or stores `fps`, `first_frame`, or `last_frame`.
 - **Rotation Handling**: Critical. Use the "Continuous Exact Alias Solver" in `math_utils.h` to avoid 180-degree flipping during Euler/Quaternion conversions.
 
-## 2. Component Responsibilities
-- **`model.h`**: The Single Source of Truth for data structures. joints use local-space transforms relative to parents.
-- **`math_utils.h`**: Contains all transformation logic. If you are changing how a model is rotated or scaled, change it here, not in the loader/writer.
-- **`fbx_writer.cpp` / `fbx_loader.cpp`**: High complexity. Uses `ufbx`. Note that FBX often has "Pre-Rotations" and "Post-Rotations" that must be flattened into the `Model` joints.
-- **`iqm_loader.cpp` / `iqm_writer.cpp`**: Handles Z-Up (IQM) to Y-Up (Internal) conversion. IQM is "Backward" (CW) winding, so indices are flipped during load/write.
-- **`glb_loader.cpp` / `glb_writer.cpp`**: Uses `cgltf`. This is the "reference" format for Y-up coordination; if a model looks right in GLB but wrong in others, the issue is likely in the other format's loader/writer.
+## 3. Data Hierarchy (Public API)
+- **`gs_model`**: Root container.
+- **`gs_animation`**: Contains a `name` and a `gs_animation_track`.
+- **`gs_animation_track`**: Contains an array of `gs_bone_anim` (one per joint).
+- **`gs_bone_anim`**: Groups `translation`, `rotation`, and `scale` channels for one joint.
+- **`gs_anim_channel`**: The raw sparse track. Contains `num_keys`, `times`, and `values`.
 
-## 3. Critical Known Issues & Pitfalls
-- **Animation Loop Flickering**: Historical bug fixed by using time-based sampling and specialized edge-case handling at $t=0$ and $t=Duration$.
-- **FBX "Arm" Bug**: A specific regression where joints lose scale over time.
-  - **GOLDEN COMMIT**: `7e2a6ff` (Free of FBX bugs).
-  - **ARM BUG INTRODUCED**: `32126a0`.
-- **IQM Animation Merging**: When an `animation.cfg` is present, it must supplement, not overwrite, internal IQM sequences unless the frame range matches exactly.
+## 4. Component Responsibilities
+- **`gameskelio.h`**: The public C interface. Use `gsk_load_*` and `gsk_write_*` functions.
+- **`gameskelio.cpp`**: The bridge between the C API and the internal C++ implementation.
+- **`model.h`**: The internal C++ Source of Truth for data structures.
+- **`math_utils.h`**: Contains all transformation logic.
+- **`fbx_writer.cpp` / `fbx_loader.cpp`**: Uses `ufbx`. Note that FBX often has "Pre-Rotations" and "Post-Rotations" that must be flattened.
+- **`iqm_loader.cpp` / `iqm_writer.cpp`**: Handles Z-Up (IQM) to Y-Up (Internal) conversion. IQM uses CW winding, so indices are flipped.
+- **`glb_loader.cpp` / `glb_writer.cpp`**: Uses `cgltf`. Reference format for Y-up coordination.
+- **`main.c`**: A pure C command-line tool (`gskelconv.exe`) that serves as a reference implementation and testing utility for the library.
 
-## 4. Development Workflow for Agents
-- **Build**: Use `make -j8` in the root.
-- **Cleaning**: Always `make clean` before a full rebuild to ensure `obj/` files are fresh.
-- **Verification**:
-  - Perform round-trips: `GLB -> IQM -> FBX -> GLB`.
-  - Compare the final GLB with the initial one in a viewer (like Three.js or Babylon.js).
-- **Git State**: The USER frequently works in "detached HEAD" states to bisect animation bugs. Check `git status` before assuming you are on `main`.
+## 5. Critical Known Issues & Pitfalls
+- **Memory Management**: When using the C API, you **MUST** call `gsk_free_model(gs_model*)` to release deep allocations. The library uses `malloc/calloc` for C structs.
+- **Coordinate Regressions**: When editing loaders, ensure the specific X/Y/Z swaps for root bones and vertices match the committed standard (see `git show HEAD:iqm_loader.cpp`).
+- **Standardized Baking**: The IQM writer standardizes on `BASE_FPS` (30.0) when baking sparse tracks back into dense frames for the IQM format.
 
-## 5. Implementation Rules
-1. **Never use Assimp**: It has been stripped from the project. Use `ufbx` for FBX and `cgltf` for GLB.
-2. **Standardize Transforms**: Loaders MUST convert to Y-up/CCW immediately. Writers MUST convert from Y-up/CCW to destination specs.
-3. **Euler Aliasing**: When exporting to FBX curves, always use the alias solver to ensure the "shortest path" in rotation space is preserved.
+## 6. Build System
+- **`make`**: Builds both `libgameskelio.a` and `gskelconv.exe` in the root.
+- **`main.c`** is compiled with `gcc` but linked with `g++` to support C++ internals.

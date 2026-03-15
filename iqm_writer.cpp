@@ -80,14 +80,14 @@ bool write_iqm(const Model& model, const char* output_path) {
             if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
         }
 
-        uint32_t nf = (uint32_t)std::ceil(max_t * ad.fps) + 1;
+        uint32_t nf = (uint32_t)std::ceil(max_t * BASE_FPS) + 1;
         if (nf == 1 && max_t == 0) nf = 1; // Static pose
 
         iqm_anims[i].name = write_text(text, ad.name);
         iqm_anims[i].first_frame = total_iqm_frames;
         iqm_anims[i].num_frames = nf;
-        iqm_anims[i].framerate = ad.fps;
-        iqm_anims[i].flags = (ad.loop_frames > 0) ? IQM_LOOP : 0;
+        iqm_anims[i].framerate = BASE_FPS;
+        iqm_anims[i].flags = 0; // Handled by player
 
         total_iqm_frames += nf;
     }
@@ -110,7 +110,7 @@ bool write_iqm(const Model& model, const char* output_path) {
             uint32_t count = iqm_anims[ai].num_frames;
 
             for (uint32_t f = 0; f < count; ++f) {
-                double time = (double)f / ad.fps;
+                double time = (double)f / BASE_FPS;
                 model.evaluate_animation((int)ai, time, evaluated_poses);
 
                 for (size_t ji = 0; ji < model.joints.size(); ++ji) {
@@ -337,9 +337,13 @@ bool write_iqm(const Model& model, const char* output_path) {
         
         std::ofstream cfg(cfg_path);
         if (cfg) {
-            for (const auto& ad : model.animations) {
-                cfg << ad.first_frame << " " << ad.last_frame << " " 
-                    << ad.loop_frames << " " << ad.fps << " // " << ad.name << "\n";
+            for (size_t i = 0; i < model.animations.size(); ++i) {
+                const auto& ad = model.animations[i];
+                const auto& iqm_a = iqm_anims[i];
+                int first = iqm_a.first_frame;
+                int last = iqm_a.first_frame + iqm_a.num_frames - 1;
+                int loop = 0; // Handled by player
+                cfg << first << " " << last << " " << loop << " " << BASE_FPS << " // " << ad.name << "\n";
             }
         }
     }

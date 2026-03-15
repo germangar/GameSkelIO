@@ -39,10 +39,6 @@ struct AnimationTrack {
 
 struct AnimationDef {
     std::string name;
-    int   first_frame; // Original range (for IQM/SKP reference)
-    int   last_frame;
-    int   loop_frames;
-    float fps;
     
     AnimationTrack track; // The actual sparse data
 };

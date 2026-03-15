@@ -6,70 +6,65 @@
 #include <cmath>
 #include <algorithm>
 
-/*
-type 2 model (hierarchical skeletal pose)
-... (omitting long comment for brevity in tool call, but I will include it in the file) ...
-*/
-
-#define SKMHEADER				"SKM1"
-#define SKM_MAX_NAME			64
+#define SKMHEADER                               "SKM1"
+#define SKM_MAX_NAME                    64
 
 typedef struct {
-	char			id[4];
-	unsigned int	type;
-	unsigned int	filesize;
-	unsigned int	num_bones;
-	unsigned int	num_meshes;
-	unsigned int	ofs_meshes;
+        char                    id[4];
+        unsigned int    type;
+        unsigned int    filesize;
+        unsigned int    num_bones;
+        unsigned int    num_meshes;
+        unsigned int    ofs_meshes;
 } dskmheader_t;
 
 typedef struct {
-	char			shadername[SKM_MAX_NAME];
-	char			meshname[SKM_MAX_NAME];
-	unsigned int	num_verts;
-	unsigned int	num_tris;
-	unsigned int	num_references;
-	unsigned int	ofs_verts;	
-	unsigned int	ofs_texcoords;
-	unsigned int	ofs_indices;
-	unsigned int	ofs_references;
+        char                    shadername[SKM_MAX_NAME];
+        char                    meshname[SKM_MAX_NAME];
+        unsigned int    num_verts;
+        unsigned int    num_tris;
+        unsigned int    num_references;
+        unsigned int    ofs_verts;
+        unsigned int    ofs_texcoords;
+        unsigned int    ofs_indices;
+        unsigned int    ofs_references;
 } dskmmesh_t;
 
 typedef struct {
-	float			origin[3];
-	float			influence;
-	float			normal[3];
-	unsigned int	bonenum;
+        float                   origin[3];
+        float                   influence;
+        float                   normal[3];
+        unsigned int    bonenum;
 } dskmbonevert_t;
 
 typedef struct {
-	float	st[2];
+        float   st[2];
 } dskmcoord_t;
 
 typedef struct {
-	char			id[4];
-	unsigned int	type;
-	unsigned int	filesize;
-	unsigned int	num_bones;
-	unsigned int	num_frames;
-	unsigned int	ofs_bones;
-	unsigned int	ofs_frames;
+        char                    id[4];
+        unsigned int    type;
+        unsigned int    filesize;
+        unsigned int    num_bones;
+        unsigned int    num_frames;
+        unsigned int    ofs_bones;
+        unsigned int    ofs_frames;
 } dskpheader_t;
 
 typedef struct {
-	char			name[SKM_MAX_NAME];
-	signed int		parent;
-	unsigned int	flags;
+        char                    name[SKM_MAX_NAME];
+        signed int              parent;
+        unsigned int    flags;
 } dskpbone_t;
 
 typedef struct {
-	float			quat[4];
-	float			origin[3];
+        float                   quat[4];
+        float                   origin[3];
 } dskpbonepose_t;
 
 typedef struct {
-	char			name[SKM_MAX_NAME];
-	unsigned int	ofs_bonepositions;
+        char                    name[SKM_MAX_NAME];
+        unsigned int    ofs_bonepositions;
 } dskpframe_t;
 
 static void transform_vec(const mat4& m, const float* in, float* out, float weight) {
@@ -78,10 +73,10 @@ static void transform_vec(const mat4& m, const float* in, float* out, float weig
     out[2] += (m.m[2] * in[0] + m.m[6] * in[1] + m.m[10] * in[2] + m.m[14] * weight);
 }
 
-static void rotate_vec(const mat4& m, const float* in, float* out) {
-    out[0] += (m.m[0] * in[0] + m.m[4] * in[1] + m.m[8] * in[2]);
-    out[1] += (m.m[1] * in[0] + m.m[5] * in[1] + m.m[9] * in[2]);
-    out[2] += (m.m[2] * in[0] + m.m[6] * in[1] + m.m[10] * in[2]);
+static void rotate_vec(const mat4& m, const float* in, float* out) {     
+    out[0] += (m.m[0] * in[0] + m.m[4] * in[1] + m.m[8] * in[2]);        
+    out[1] += (m.m[1] * in[0] + m.m[5] * in[1] + m.m[9] * in[2]);        
+    out[2] += (m.m[2] * in[0] + m.m[6] * in[1] + m.m[10] * in[2]);       
 }
 
 bool load_skm(const char* path, Model& out) {
@@ -94,7 +89,6 @@ bool load_skm(const char* path, Model& out) {
     std::string skm_path = base_path + ".skm";
     std::string skp_path = base_path + ".skp";
 
-    // 1. Load SKP (Skeleton and Poses)
     std::ifstream f_skp(skp_path, std::ios::binary);
     if (!f_skp) {
         std::cerr << "Failed to open SKP file: " << skp_path << std::endl;
@@ -123,7 +117,6 @@ bool load_skm(const char* path, Model& out) {
         out.joints[i].parent = skp_bones[i].parent;
     }
 
-    // Load Poses (Frame 0 is base pose)
     std::vector<std::vector<dskpbonepose_t>> frame_poses(num_frames, std::vector<dskpbonepose_t>(num_bones));
     dskpframe_t* skp_frames = (dskpframe_t*)(skp_buf.data() + skp_hdr->ofs_frames);
     for (uint32_t f = 0; f < num_frames; ++f) {
@@ -131,7 +124,6 @@ bool load_skm(const char* path, Model& out) {
         std::memcpy(frame_poses[f].data(), poses, num_bones * sizeof(dskpbonepose_t));
     }
 
-    // Compute Z-up World Transforms for Bind Pose (Frame 0)
     std::vector<mat4> zup_world_matrices(num_bones);
     for (uint32_t i = 0; i < num_bones; ++i) {
         float scale[3] = {1, 1, 1};
@@ -143,19 +135,15 @@ bool load_skm(const char* path, Model& out) {
         }
     }
 
-    // Populate Model Joints (Y-up transformed Bind Pose)
     for (uint32_t i = 0; i < num_bones; ++i) {
-        float t[3]; std::memcpy(t, frame_poses[0][i].origin, 12);
+        float t[3]; std::memcpy(t, frame_poses[0][i].origin, 12);        
         float r[4]; std::memcpy(r, frame_poses[0][i].quat, 16);
         float s[3] = {1, 1, 1};
 
         if (out.joints[i].parent == -1) {
-            // Root Translation: (x, y, z) -> (x, z, -y)
             float t_yup[3] = {t[0], t[2], -t[1]};
             std::memcpy(t, t_yup, 12);
-            
-            // Root Rotation: pre-multiply by -90X
-            float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
+            float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};      
             float r_new[4];
             quat_mul(q_rot, r, r_new);
             quat_normalize(r_new);
@@ -166,7 +154,6 @@ bool load_skm(const char* path, Model& out) {
         std::memcpy(out.joints[i].scale, s, 12);
     }
 
-    // 2. Load SKM (Mesh Data)
     std::ifstream f_skm(skm_path, std::ios::binary);
     if (!f_skm) {
         std::cerr << "Failed to open SKM file: " << skm_path << std::endl;
@@ -187,7 +174,7 @@ bool load_skm(const char* path, Model& out) {
 
     dskmmesh_t* skm_meshes = (dskmmesh_t*)(skm_buf.data() + skm_hdr->ofs_meshes);
     out.meshes.resize(skm_hdr->num_meshes);
-    
+
     for (uint32_t m = 0; m < skm_hdr->num_meshes; ++m) {
         Mesh& mesh = out.meshes[m];
         mesh.name = skm_meshes[m].meshname;
@@ -197,9 +184,8 @@ bool load_skm(const char* path, Model& out) {
         mesh.first_triangle = out.indices.size() / 3;
         mesh.num_triangles = skm_meshes[m].num_tris;
 
-        // Vertices
         out.positions.resize((mesh.first_vertex + mesh.num_vertexes) * 3);
-        out.normals.resize((mesh.first_vertex + mesh.num_vertexes) * 3);
+        out.normals.resize((mesh.first_vertex + mesh.num_vertexes) * 3); 
         out.texcoords.resize((mesh.first_vertex + mesh.num_vertexes) * 2);
         out.joints_0.resize((mesh.first_vertex + mesh.num_vertexes) * 4, 0);
         out.weights_0.resize((mesh.first_vertex + mesh.num_vertexes) * 4, 0.0f);
@@ -214,10 +200,7 @@ bool load_skm(const char* path, Model& out) {
             float zup_pos[3] = {0, 0, 0};
             float zup_norm[3] = {0, 0, 0};
 
-            struct Influence {
-                int bone;
-                float weight;
-            };
+            struct Influence { int bone; float weight; };
             std::vector<Influence> sorted_influences;
             for (uint32_t i = 0; i < num_influences; ++i) {
                 if (influences[i].bonenum < num_bones) {
@@ -232,127 +215,91 @@ bool load_skm(const char* path, Model& out) {
             });
 
             float total_weight = 0;
-            int n_infl = std::min((int)sorted_influences.size(), 4);
+            int n_infl = std::min((int)sorted_influences.size(), 4);     
             for (int i = 0; i < n_infl; ++i) total_weight += sorted_influences[i].weight;
-            
+
             for (int i = 0; i < n_infl; ++i) {
                 out.joints_0[(mesh.first_vertex + v) * 4 + i] = (uint8_t)sorted_influences[i].bone;
                 out.weights_0[(mesh.first_vertex + v) * 4 + i] = (total_weight > 0) ? (sorted_influences[i].weight / total_weight) : 0;
             }
 
-            // Convert reconstructed Z-up Model Position to Y-up
-            out.positions[(mesh.first_vertex + v) * 3 + 0] = zup_pos[0];
-            out.positions[(mesh.first_vertex + v) * 3 + 1] = zup_pos[2];
+            out.positions[(mesh.first_vertex + v) * 3 + 0] = zup_pos[0]; 
+            out.positions[(mesh.first_vertex + v) * 3 + 1] = zup_pos[2]; 
             out.positions[(mesh.first_vertex + v) * 3 + 2] = -zup_pos[1];
 
-            // Convert reconstructed Z-up Model Normal to Y-up
             float norm_len = std::sqrt(zup_norm[0]*zup_norm[0] + zup_norm[1]*zup_norm[1] + zup_norm[2]*zup_norm[2]);
             if (norm_len > 1e-6f) {
                 float inv_len = 1.0f / norm_len;
                 zup_norm[0] *= inv_len; zup_norm[1] *= inv_len; zup_norm[2] *= inv_len;
             }
-            out.normals[(mesh.first_vertex + v) * 3 + 0] = zup_norm[0];
-            out.normals[(mesh.first_vertex + v) * 3 + 1] = zup_norm[2];
-            out.normals[(mesh.first_vertex + v) * 3 + 2] = -zup_norm[1];
+            out.normals[(mesh.first_vertex + v) * 3 + 0] = zup_norm[0];  
+            out.normals[(mesh.first_vertex + v) * 3 + 1] = zup_norm[2];  
+            out.normals[(mesh.first_vertex + v) * 3 + 2] = -zup_norm[1]; 
         }
 
-        // Texcoords
         dskmcoord_t* st = (dskmcoord_t*)(skm_buf.data() + skm_meshes[m].ofs_texcoords);
         for (uint32_t v = 0; v < mesh.num_vertexes; ++v) {
             out.texcoords[(mesh.first_vertex + v) * 2 + 0] = st[v].st[0];
-            out.texcoords[(mesh.first_vertex + v) * 2 + 1] = st[v].st[1]; 
+            out.texcoords[(mesh.first_vertex + v) * 2 + 1] = st[v].st[1];
         }
 
-        // Indices
         unsigned int* idx = (unsigned int*)(skm_buf.data() + skm_meshes[m].ofs_indices);
         for (uint32_t t = 0; t < mesh.num_triangles; ++t) {
-            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 0]);
-            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 2]); // CW to CCW flip
-            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 1]); // CW to CCW flip
+            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 0]);   
+            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 2]);
+            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 1]);
         }
     }
 
-    // 3. Animations (Populate Sparse Tracks)
-    // Check if there's a Warsow style animation.cfg
     std::string cfg_path = find_animation_cfg(skm_path);
+    std::vector<AnimConfigEntry> entries;
     if (!cfg_path.empty()) {
         std::cout << "Found animation config: " << cfg_path << std::endl;
-        std::vector<AnimationDef> cfg_anims = parse_animation_cfg(cfg_path);
-        
-        if (out.qfusion) {
-            out.animations.push_back({"base", 0, 0, 0, BASE_FPS});
-            out.animations.push_back({"STAND_IDLE", 1, 39, 0, BASE_FPS});
-        }
-
-        for (const auto& a : cfg_anims) {
-            bool found = false;
-            for (auto& existing : out.animations) {
-                if (existing.name == a.name) {
-                    existing = a;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) out.animations.push_back(a);
-        }
+        entries = parse_animation_cfg(cfg_path);
     } else {
-        // Fallback: one clip for all frames or qfusion bases
-        if (out.qfusion) {
-            out.animations.push_back({"base", 0, 0, 0, BASE_FPS});
-            out.animations.push_back({"STAND_IDLE", 1, 39, 0, BASE_FPS});
-        } else {
-            AnimationDef ad;
-            ad.name = "all";
-            ad.first_frame = 0;
-            ad.last_frame = num_frames - 1;
-            ad.fps = BASE_FPS;
-            ad.loop_frames = 0;
-            out.animations.push_back(ad);
-        }
+        entries.push_back({"all", 0, (int)num_frames - 1, 0, BASE_FPS});
     }
 
-
-    for (auto& anim : out.animations) {
-        anim.track.bones.resize(num_bones);
-        for (int f = anim.first_frame; f <= anim.last_frame; ++f) {
+    for (const auto& entry : entries) {
+        AnimationDef ad;
+        ad.name = entry.name;
+        ad.track.bones.resize(num_bones);
+        for (int f = entry.first_frame; f <= entry.last_frame; ++f) {      
             if (f < 0 || f >= (int)num_frames) continue;
-            double time = (double)(f - anim.first_frame) / anim.fps;
-            
+            double time = (double)(f - entry.first_frame) / entry.fps;     
+
             for (uint32_t p = 0; p < num_bones; ++p) {
-                BoneAnim& ba = anim.track.bones[p];
+                BoneAnim& ba = ad.track.bones[p];
                 float t[3]; std::memcpy(t, frame_poses[f][p].origin, 12);
-                float r[4]; std::memcpy(r, frame_poses[f][p].quat, 16);
-                
+                float r[4]; std::memcpy(r, frame_poses[f][p].quat, 16);  
+
                 if (out.joints[p].parent == -1) {
                     float tx = t[0], ty = t[1], tz = t[2];
                     t[0] = tx; t[1] = tz; t[2] = -ty;
-                    
                     float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
                     float r_new[4];
                     quat_mul(q_rot, r, r_new);
                     quat_normalize(r_new);
                     std::memcpy(r, r_new, 16);
                 }
-                
+
                 ba.translation.times.push_back(time);
                 ba.translation.values.push_back(t[0]);
                 ba.translation.values.push_back(t[1]);
                 ba.translation.values.push_back(t[2]);
-                
                 ba.rotation.times.push_back(time);
                 ba.rotation.values.push_back(r[0]);
                 ba.rotation.values.push_back(r[1]);
                 ba.rotation.values.push_back(r[2]);
                 ba.rotation.values.push_back(r[3]);
-                
                 ba.scale.times.push_back(time);
                 ba.scale.values.push_back(1.0f);
                 ba.scale.values.push_back(1.0f);
                 ba.scale.values.push_back(1.0f);
             }
         }
+        out.animations.push_back(ad);
     }
-    
+
     return true;
 }
-

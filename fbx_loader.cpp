@@ -210,8 +210,6 @@ bool load_fbx(const char* path, Model& out) {
 
         AnimationDef ad;
         ad.name = stack->name.data;
-        ad.fps = (float)BASE_FPS;
-        ad.loop_frames = 0;
         ad.track.bones.resize(out.joints.size());
 
         for (size_t ji = 0; ji < out.joints.size(); ++ji) {

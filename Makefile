@@ -1,36 +1,49 @@
-# iqm2glb Makefile
-
 CXX      = g++
+CC       = gcc
+AR       = ar
 CXXFLAGS = -O2 -Wall -std=c++17 -Ilibs
 CFLAGS   = -O2 -Wall -Ilibs
 LDFLAGS  =
 
 TARGET = gskelconv.exe
+LIB_TARGET = libgameskelio.a
 OBJDIR = obj
 
-SRCS   = main.cpp \
-         iqm_loader.cpp \
-         anim_cfg.cpp \
-         glb_writer.cpp \
-         glb_loader.cpp \
-         iqm_writer.cpp \
-         cgltf_impl.cpp \
-         cgltf_write_impl.cpp \
-         skp_loader.cpp \
-         fbx_writer.cpp \
-         fbx_loader.cpp
+# Library source files
+LIB_SRCS = iqm_loader.cpp \
+           anim_cfg.cpp \
+           glb_writer.cpp \
+           glb_loader.cpp \
+           iqm_writer.cpp \
+           cgltf_impl.cpp \
+           cgltf_write_impl.cpp \
+           skp_loader.cpp \
+           fbx_writer.cpp \
+           fbx_loader.cpp \
+           gameskelio.cpp
 
-OBJS   = $(addprefix $(OBJDIR)/, $(SRCS:.cpp=.o)) \
-         $(addprefix $(OBJDIR)/, fbx.o) \
-         $(addprefix $(OBJDIR)/, ufbx.o) \
-         $(addprefix $(OBJDIR)/, miniz.o)
+LIB_OBJS = $(addprefix $(OBJDIR)/, $(LIB_SRCS:.cpp=.o)) \
+           $(addprefix $(OBJDIR)/, fbx.o) \
+           $(addprefix $(OBJDIR)/, ufbx.o) \
+           $(addprefix $(OBJDIR)/, miniz.o)
 
-all: $(OBJDIR) $(TARGET)
+MAIN_OBJ = $(OBJDIR)/main.o
+
+# Default target
+all: $(OBJDIR) $(LIB_TARGET) $(TARGET)
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
-$(TARGET): $(OBJS)
+$(LIB_TARGET): $(LIB_OBJS)
+	$(AR) rcs $@ $^
+
+# main.o needs to be compiled from main.c
+$(OBJDIR)/main.o: main.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Link with g++ because libgameskelio.a contains C++ code
+$(TARGET): $(MAIN_OBJ) $(LIB_TARGET)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) -lstdc++
 
 $(OBJDIR)/%.o: %.cpp
@@ -52,6 +65,6 @@ $(OBJDIR)/cgltf_write_impl.o: libs/cgltf_write_impl.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET)
+	rm -rf $(OBJDIR) $(TARGET) $(LIB_TARGET)
 
 .PHONY: all clean

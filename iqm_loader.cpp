@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include "anim_cfg.h"
 
 bool load_iqm(const char* path, Model& out) {
     std::ifstream f(path, std::ios::binary);
@@ -10,7 +11,6 @@ bool load_iqm(const char* path, Model& out) {
     iqmheader hdr;
     f.read((char*)&hdr, sizeof(hdr));
     if (std::memcmp(hdr.magic, IQM_MAGIC, 16) != 0) return false;
-    
 
     f.seekg(0, std::ios::end);
     size_t file_size = f.tellg();
@@ -27,15 +27,15 @@ bool load_iqm(const char* path, Model& out) {
         for (uint32_t i = 0; i < hdr.num_joints; ++i) {
             out.joints[i].name = text_pool + iqm_joints[i].name;
             out.joints[i].parent = iqm_joints[i].parent;
-            
+
             float t[3]; memcpy(t, iqm_joints[i].translate, 12);
             float r[4]; memcpy(r, iqm_joints[i].rotate, 16);
-            
+
             if (out.joints[i].parent == -1) {
                 // Root Translation: (x, y, z) -> (x, z, -y)
                 float t_yup[3] = {t[0], t[2], -t[1]};
                 memcpy(t, t_yup, 12);
-                
+
                 // Root Rotation: pre-multiply by -90X
                 float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
                 float r_new[4];
@@ -43,7 +43,7 @@ bool load_iqm(const char* path, Model& out) {
                 quat_normalize(r_new);
                 memcpy(r, r_new, 16);
             }
-            
+
             memcpy(out.joints[i].translate, t, 12);
             memcpy(out.joints[i].rotate, r, 16);
             memcpy(out.joints[i].scale, iqm_joints[i].scale, 12);
@@ -57,7 +57,7 @@ bool load_iqm(const char* path, Model& out) {
         for (uint32_t i = 0; i < hdr.num_meshes; ++i) {
             out.meshes[i].name = text_pool + iqm_meshes[i].name;
             out.meshes[i].material_name = text_pool + iqm_meshes[i].material;
-            out.meshes[i].color_map = out.meshes[i].material_name; // Default to material name as color map
+            out.meshes[i].color_map = out.meshes[i].material_name;
             out.meshes[i].first_vertex = iqm_meshes[i].first_vertex;
             out.meshes[i].num_vertexes = iqm_meshes[i].num_vertexes;
             out.meshes[i].first_triangle = iqm_meshes[i].first_triangle;
@@ -108,8 +108,8 @@ bool load_iqm(const char* path, Model& out) {
         const uint32_t* iqm_indices = (const uint32_t*)(buffer.data() + hdr.ofs_triangles);
         for (uint32_t i = 0; i < hdr.num_triangles; ++i) {
             out.indices[i * 3 + 0] = iqm_indices[i * 3 + 0];
-            out.indices[i * 3 + 1] = iqm_indices[i * 3 + 2]; // Standard-CCW flip
-            out.indices[i * 3 + 2] = iqm_indices[i * 3 + 1]; // Standard-CCW flip
+            out.indices[i * 3 + 1] = iqm_indices[i * 3 + 2];
+            out.indices[i * 3 + 2] = iqm_indices[i * 3 + 1];
         }
     }
 
@@ -117,16 +117,15 @@ bool load_iqm(const char* path, Model& out) {
     if (hdr.num_frames > 0 && hdr.num_anims > 0) {
         std::vector<iqmpose> orig_poses(hdr.num_poses);
         if (hdr.num_poses > 0) memcpy(orig_poses.data(), buffer.data() + hdr.ofs_poses, hdr.num_poses * sizeof(iqmpose));
-        
+
         uint32_t orig_framechannels = 0;
         for (uint32_t p = 0; p < hdr.num_poses; ++p) {
             for (int c = 0; c < 10; ++c) if (orig_poses[p].mask & (1 << c)) orig_framechannels++;
         }
-        
+
         const unsigned short* orig_fdata = (const unsigned short*)(buffer.data() + hdr.ofs_frames);
         const iqmanim* iqm_anims = (const iqmanim*)(buffer.data() + hdr.ofs_anims);
 
-        // Pre-unpack all dense frames into a temp buffer for easy track "explosion"
         std::vector<float> dense_frames(hdr.num_frames * hdr.num_poses * 10);
         for (uint32_t f = 0; f < hdr.num_frames; ++f) {
             const unsigned short* fin = orig_fdata + f * orig_framechannels;
@@ -141,10 +140,8 @@ bool load_iqm(const char* path, Model& out) {
                 }
 
                 if (out.joints[p].parent == -1) {
-                    // Root Translation: (x, y, z) -> (x, z, -y)
                     float tx = vals[0], ty = vals[1], tz = vals[2];
                     vals[0] = tx; vals[1] = tz; vals[2] = -ty;
-                    // Root Rotation: pre-multiply by -90X
                     float r[4] = {vals[3], vals[4], vals[5], vals[6]};
                     float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
                     float r_new[4];
@@ -156,80 +153,57 @@ bool load_iqm(const char* path, Model& out) {
             }
         }
 
-        // Animations (Unpack into sparse tracks)
         std::string cfg_path = find_animation_cfg(path);
+        std::vector<AnimConfigEntry> entries;
+
         if (!cfg_path.empty()) {
             std::cout << "Found animation config: " << cfg_path << std::endl;
-            std::vector<AnimationDef> cfg_anims = parse_animation_cfg(cfg_path);
-            
-            if (out.qfusion) {
-                out.animations.push_back({"base", 0, 0, 0, BASE_FPS});
-                out.animations.push_back({"STAND_IDLE", 1, 39, 0, BASE_FPS});
-            }
-
-            for (const auto& a : cfg_anims) {
-                bool found = false;
-                for (auto& existing : out.animations) {
-                    if (existing.name == a.name) {
-                        existing = a;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) out.animations.push_back(a);
-            }
+            entries = parse_animation_cfg(cfg_path);
         } else {
             for (uint32_t i = 0; i < hdr.num_anims; ++i) {
-                AnimationDef ad;
-                ad.name = text_pool + iqm_anims[i].name;
-                ad.first_frame = iqm_anims[i].first_frame;
-                ad.last_frame = iqm_anims[i].first_frame + iqm_anims[i].num_frames - 1;
-                ad.fps = (iqm_anims[i].framerate > 0.0f) ? iqm_anims[i].framerate : BASE_FPS;
-                ad.loop_frames = (iqm_anims[i].flags & IQM_LOOP) ? 1 : 0;
-                out.animations.push_back(ad);
+                AnimConfigEntry ace;
+                ace.name = text_pool + iqm_anims[i].name;
+                ace.first_frame = iqm_anims[i].first_frame;
+                ace.last_frame = iqm_anims[i].first_frame + iqm_anims[i].num_frames - 1;
+                ace.fps = (iqm_anims[i].framerate > 0.0f) ? iqm_anims[i].framerate : BASE_FPS;
+                entries.push_back(ace);
             }
         }
 
-        if (out.animations.empty()) {
-            AnimationDef ad;
-            ad.name = "base";
-            ad.first_frame = 0;
-            ad.last_frame = hdr.num_frames - 1;
-            ad.fps = BASE_FPS;
-            ad.loop_frames = 0;
-            out.animations.push_back(ad);
+        if (entries.empty()) {
+            entries.push_back({"base", 0, (int)hdr.num_frames - 1, 0, BASE_FPS});
         }
 
-        for (auto& ad : out.animations) {
+        for (const auto& ace : entries) {
+            AnimationDef ad;
+            ad.name = ace.name;
             ad.track.bones.resize(out.joints.size());
-            for (int f = ad.first_frame; f <= ad.last_frame; ++f) {
+            for (int f = ace.first_frame; f <= ace.last_frame; ++f) {
                 if (f < 0 || f >= (int)hdr.num_frames) continue;
-                double time = (double)(f - ad.first_frame) / ad.fps;
+                double time = (double)(f - ace.first_frame) / ace.fps;
                 float* fptr = dense_frames.data() + (size_t)f * hdr.num_poses * 10;
-                
+
                 for (size_t ji = 0; ji < out.joints.size(); ++ji) {
                     BoneAnim& ba = ad.track.bones[ji];
                     float* bptr = fptr + ji * 10;
-                    
                     ba.translation.times.push_back(time);
                     ba.translation.values.push_back(bptr[0]);
                     ba.translation.values.push_back(bptr[1]);
                     ba.translation.values.push_back(bptr[2]);
-                    
                     ba.rotation.times.push_back(time);
                     ba.rotation.values.push_back(bptr[3]);
                     ba.rotation.values.push_back(bptr[4]);
                     ba.rotation.values.push_back(bptr[5]);
                     ba.rotation.values.push_back(bptr[6]);
-                    
                     ba.scale.times.push_back(time);
                     ba.scale.values.push_back(bptr[7]);
                     ba.scale.values.push_back(bptr[8]);
                     ba.scale.values.push_back(bptr[9]);
                 }
             }
+            out.animations.push_back(ad);
         }
     }
-    
+
     return true;
 }

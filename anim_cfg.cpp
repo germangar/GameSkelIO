@@ -1,9 +1,12 @@
 #include "anim_cfg.h"
-#include "model.h"
 #include <fstream>
 #include <iostream>
 #include <cstdio>   // sscanf
 #include <cctype>   // isdigit
+
+#ifndef BASE_FPS
+#define BASE_FPS 30.0f
+#endif
 
 std::string find_animation_cfg(const std::string& iqm_path) {
     size_t last_dot   = iqm_path.find_last_of('.');
@@ -26,16 +29,15 @@ std::string find_animation_cfg(const std::string& iqm_path) {
     return "";
 }
 
-std::vector<AnimationDef> parse_animation_cfg(const std::string& path) {
-    std::vector<AnimationDef> anims;
+std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
+    std::vector<AnimConfigEntry> entries;
+
+    // Always prepend hardcoded Warfork/Warsow leading animations
+    entries.push_back({"base", 0, 0, 0, BASE_FPS});
+    entries.push_back({"STAND_IDLE", 1, 39, 0, BASE_FPS});
 
     std::ifstream f(path);
-    if (!f.is_open()) {
-        // Fallback: Hardcoded leading animations only if no file
-        anims.push_back({"base",       0,  0,  0, BASE_FPS});
-        anims.push_back({"STAND_IDLE", 1, 39, 0, BASE_FPS});
-        return anims;
-    }
+    if (!f.is_open()) return entries;
 
     std::string line;
     while (std::getline(f, line)) {
@@ -56,19 +58,14 @@ std::vector<AnimationDef> parse_animation_cfg(const std::string& path) {
         float fps = BASE_FPS;
 
         // Require at least two integers (first, last)
-        if (sscanf(line.c_str(), "%d %d", &first, &last) < 2) continue;
+        int fields = sscanf(line.c_str(), "%d %d %d %f", &first, &last, &loop, &fps);
+        if (fields < 2) continue;
 
-        AnimationDef ad;
-        ad.first_frame = first;
-        ad.last_frame  = last;
-        ad.loop_frames = 0;
-        ad.fps         = BASE_FPS;
-
-        // Optionally parse loop + fps if all four fields are present
-        if (sscanf(line.c_str(), "%d %d %d %f", &first, &last, &loop, &fps) == 4) {
-            ad.loop_frames = loop;
-            ad.fps         = fps;
-        }
+        AnimConfigEntry ace;
+        ace.first_frame = first;
+        ace.last_frame  = last;
+        ace.loop_frames = (fields >= 3) ? loop : 0;
+        ace.fps         = (fields >= 4) ? fps : BASE_FPS;
 
         // Extract name from trailing // comment
         size_t comment_pos = line.find("//");
@@ -77,20 +74,20 @@ std::vector<AnimationDef> parse_animation_cfg(const std::string& path) {
             comment.erase(0, comment.find_first_not_of(" \t"));
             // Take the first word only
             size_t space_pos = comment.find_first_of(" \t\r\n");
-            ad.name = (space_pos != std::string::npos)
+            ace.name = (space_pos != std::string::npos)
                     ? comment.substr(0, space_pos)
                     : comment;
         } else {
-            ad.name = "unnamed_" + std::to_string(anims.size());
+            ace.name = "unnamed_" + std::to_string(entries.size());
         }
 
-        anims.push_back(ad);
+        entries.push_back(ace);
     }
 
     // Ensure we have at least one "base" animation if file was empty
-    if (anims.empty()) {
-        anims.push_back({"base", 0, 0, 0, BASE_FPS});
+    if (entries.empty()) {
+        entries.push_back({"base", 0, 0, 0, BASE_FPS});
     }
 
-    return anims;
+    return entries;
 }

@@ -136,8 +136,6 @@ bool load_glb(const char* path, Model& out) {
             AnimationDef ad;
             ad.name = anim->name ? anim->name : "anim_" + std::to_string(i);
             std::replace(ad.name.begin(), ad.name.end(), ' ', '_');
-            ad.fps = BASE_FPS;
-            ad.loop_frames = 0;
             ad.track.bones.resize(out.joints.size());
 
             for (size_t j = 0; j < anim->channels_count; ++j) {
