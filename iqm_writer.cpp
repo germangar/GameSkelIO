@@ -14,8 +14,9 @@ static uint32_t write_text(std::vector<char>& pool, const std::string& s) {
     return pos;
 }
 
-bool write_iqm(const Model& model, const char* output_path) {
-    std::vector<uint8_t> buffer = write_iqm_to_memory(model);
+bool write_iqm(const Model& model, const char* output_path, bool force_single_anim) {
+    std::vector<gs_legacy_framegroup> metadata;
+    std::vector<uint8_t> buffer = write_iqm_to_memory(model, force_single_anim, &metadata);
     if (buffer.empty()) return false;
 
     std::ofstream f(output_path, std::ios::binary);
@@ -23,8 +24,8 @@ bool write_iqm(const Model& model, const char* output_path) {
     f.write((const char*)buffer.data(), buffer.size());
     f.close();
 
-    // 6. Write animation.cfg
-    if (!model.animations.empty()) {
+    // 6. Write animation.cfg using the metadata we just calculated during baking
+    if (!metadata.empty()) {
         std::string cfg_path = output_path;
         size_t dot = cfg_path.find_last_of('.');
         if (dot != std::string::npos) cfg_path = cfg_path.substr(0, dot) + ".cfg";
@@ -32,23 +33,10 @@ bool write_iqm(const Model& model, const char* output_path) {
         
         std::ofstream cfg(cfg_path);
         if (cfg) {
-            // We need to re-calculate the frame ranges exactly as we did in the bake process.
-            uint32_t total_iqm_frames = 0;
-            for (const auto& ad : model.animations) {
-                double max_t = 0;
-                for (const auto& ba : ad.bones) {
-                    if (!ba.translation.times.empty()) max_t = std::max(max_t, ba.translation.times.back());
-                    if (!ba.rotation.times.empty()) max_t = std::max(max_t, ba.rotation.times.back());
-                    if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
-                }
-                uint32_t nf = (uint32_t)std::round(max_t * BASE_FPS) + 1;
-                if (nf == 1 && max_t == 0) nf = 1;
-
-                int first = total_iqm_frames;
-                int last = first + nf - 1;
+            for (const auto& fg : metadata) {
                 int loop = 0; 
-                cfg << first << " " << last << " " << loop << " " << BASE_FPS << " // " << ad.name << "\n";
-                total_iqm_frames += nf;
+                cfg << fg.first_frame << " " << fg.first_frame + fg.num_frames - 1 << " " 
+                    << loop << " " << fg.fps << " // " << fg.name << "\n";
             }
         }
     }
@@ -57,7 +45,7 @@ bool write_iqm(const Model& model, const char* output_path) {
     return true;
 }
 
-std::vector<uint8_t> write_iqm_to_memory(const Model& model) {
+std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_anim, std::vector<gs_legacy_framegroup>* out_metadata) {
     std::vector<uint8_t> buffer;
     iqmheader hdr = {};
     memcpy(hdr.magic, IQM_MAGIC, 16);
@@ -104,28 +92,65 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model) {
     }
 
     // 3. Prepare Animations
-    std::vector<iqmanim> iqm_anims(model.animations.size());
+    std::vector<iqmanim> iqm_anims;
     uint32_t total_iqm_frames = 0;
 
-    for (size_t i = 0; i < model.animations.size(); ++i) {
-        const AnimationDef& ad = model.animations[i];
-        double max_t = 0;
+    std::vector<uint32_t> clip_frame_counts;
+    for (const auto& ad : model.animations) {
+        double clip_duration = 0;
         for (const auto& ba : ad.bones) {
-            if (!ba.translation.times.empty()) max_t = std::max(max_t, ba.translation.times.back());
-            if (!ba.rotation.times.empty()) max_t = std::max(max_t, ba.rotation.times.back());
-            if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
+            if (!ba.translation.times.empty()) clip_duration = std::max(clip_duration, ba.translation.times.back());
+            if (!ba.rotation.times.empty()) clip_duration = std::max(clip_duration, ba.rotation.times.back());
+            if (!ba.scale.times.empty()) clip_duration = std::max(clip_duration, ba.scale.times.back());
         }
-
-        uint32_t nf = (uint32_t)std::round(max_t * BASE_FPS) + 1;
-        if (nf == 1 && max_t == 0) nf = 1;
-
-        iqm_anims[i].name = write_text(text, ad.name);
-        iqm_anims[i].first_frame = total_iqm_frames;
-        iqm_anims[i].num_frames = nf;
-        iqm_anims[i].framerate = BASE_FPS;
-        iqm_anims[i].flags = 0;
-
+        uint32_t nf = (uint32_t)std::round(clip_duration * BASE_FPS) + 1;
+        if (nf == 1 && clip_duration == 0) nf = 1;
+        clip_frame_counts.push_back(nf);
         total_iqm_frames += nf;
+    }
+
+    if (force_single_anim) {
+        iqmanim ia = {};
+        ia.name = write_text(text, "all");
+        ia.first_frame = 0;
+        ia.num_frames = total_iqm_frames;
+        ia.framerate = BASE_FPS;
+        ia.flags = 0;
+        iqm_anims.push_back(ia);
+
+        if (out_metadata) {
+            uint32_t f_offset = 0;
+            for (size_t i = 0; i < model.animations.size(); ++i) {
+                gs_legacy_framegroup fg;
+                fg.name = model.animations[i].name.c_str();
+                fg.first_frame = f_offset;
+                fg.num_frames = clip_frame_counts[i];
+                fg.fps = BASE_FPS;
+                out_metadata->push_back(fg);
+                f_offset += clip_frame_counts[i];
+            }
+        }
+    } else {
+        uint32_t f_offset = 0;
+        for (size_t i = 0; i < model.animations.size(); ++i) {
+            iqmanim ia = {};
+            ia.name = write_text(text, model.animations[i].name);
+            ia.first_frame = f_offset;
+            ia.num_frames = clip_frame_counts[i];
+            ia.framerate = BASE_FPS;
+            ia.flags = 0;
+            iqm_anims.push_back(ia);
+
+            if (out_metadata) {
+                gs_legacy_framegroup fg;
+                fg.name = model.animations[i].name.c_str(); 
+                fg.first_frame = f_offset;
+                fg.num_frames = clip_frame_counts[i];
+                fg.fps = BASE_FPS;
+                out_metadata->push_back(fg);
+            }
+            f_offset += clip_frame_counts[i];
+        }
     }
 
     std::vector<iqmpose> iqm_poses(model.joints.size());
@@ -139,24 +164,24 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model) {
         std::vector<float> zup_frames(total_iqm_frames * model.joints.size() * 10);
         std::vector<Pose> evaluated_poses;
 
+        uint32_t f_offset = 0;
         for (size_t ai = 0; ai < model.animations.size(); ++ai) {
             const AnimationDef& ad = model.animations[ai];
-            uint32_t first = iqm_anims[ai].first_frame;
-            uint32_t count = iqm_anims[ai].num_frames;
+            uint32_t nf = clip_frame_counts[ai];
 
-            double max_t = 0;
+            double clip_duration = 0;
             for (const auto& ba : ad.bones) {
-                if (!ba.translation.times.empty()) max_t = std::max(max_t, ba.translation.times.back());
-                if (!ba.rotation.times.empty()) max_t = std::max(max_t, ba.rotation.times.back());
-                if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
+                if (!ba.translation.times.empty()) clip_duration = std::max(clip_duration, ba.translation.times.back());
+                if (!ba.rotation.times.empty()) clip_duration = std::max(clip_duration, ba.rotation.times.back());
+                if (!ba.scale.times.empty()) clip_duration = std::max(clip_duration, ba.scale.times.back());
             }
 
-            for (uint32_t f = 0; f < count; ++f) {
-                double time = (count > 1) ? (double)f * (max_t / (double)(count - 1)) : 0.0;
+            for (uint32_t f = 0; f < nf; ++f) {
+                double time = (nf > 1) ? (double)f * (clip_duration / (double)(nf - 1)) : 0.0;
                 model.evaluate_animation((int)ai, time, evaluated_poses);
 
                 for (size_t ji = 0; ji < model.joints.size(); ++ji) {
-                    float* fout = &zup_frames[(first + f) * model.joints.size() * 10 + ji * 10];
+                    float* fout = &zup_frames[(f_offset + f) * model.joints.size() * 10 + ji * 10];
                     const Pose& p = evaluated_poses[ji];
                     float vals[10];
                     memcpy(vals, p.translate, 12);
@@ -175,6 +200,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model) {
                     memcpy(fout, vals, 40);
                 }
             }
+            f_offset += nf;
         }
 
         struct ChanStat { float min = 1e30f, max = -1e30f; };
@@ -190,7 +216,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model) {
             }
         }
         
-        out_frames.resize(zup_frames.size());
+        out_frames.resize(total_iqm_frames * model.joints.size() * 10);
         for (size_t p = 0; p < model.joints.size(); ++p) {
             for (int c = 0; c < 10; ++c) {
                 float mn = stats[p][c].min, mx = stats[p][c].max;
@@ -253,7 +279,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model) {
 
     add_va(IQM_POSITION, IQM_FLOAT, 3, zup_positions.data(), zup_positions.size() * 4);
     add_va(IQM_TEXCOORD, IQM_FLOAT, 2, model.texcoords.data(), model.texcoords.size() * 4);
-    add_va(IQM_NORMAL, IQM_FLOAT, 3, zup_normals.data(), zup_normals.size() * 4);
+    add_va(IQM_NORMAL,   IQM_FLOAT, 3, zup_normals.data(), zup_normals.size() * 4);
     add_va(IQM_BLENDINDICES, IQM_UBYTE, 4, model.joints_0.data(), model.joints_0.size());
     std::vector<uint8_t> w8(model.weights_0.size());
     for(size_t i=0; i<w8.size(); ++i) w8[i] = (uint8_t)(model.weights_0[i] * 255.0f + 0.5f);

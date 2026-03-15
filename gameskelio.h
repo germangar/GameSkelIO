@@ -22,7 +22,7 @@ extern "C" {
 
 /** 
  * A 4x4 matrix stored as an array of 16 floats.
- * Layout matches standard math library expectations (Row-Major).
+ * Layout matches standard math library expectations (Column-Major).
  */
 typedef struct gs_mat4 {
     float m[16];
@@ -125,8 +125,6 @@ typedef struct gs_model {
     uint32_t num_indices;
     uint32_t* indices; // 3 indices per triangle
 
-    bool qfusion; // Optimization flag for specific engine backends
-
     // Bind-pose transform cache
     gs_mat4* world_matrices;
     gs_mat4* ibms;           // Source Inverse Bind Matrices
@@ -157,17 +155,20 @@ gs_model* gsk_load_skm(const char* path);
 // Writers/Exporters (Buffer-based): Bake model into a specific format's binary representation.
 // Returns a pointer to the allocated memory block and sets 'out_size'.
 // Caller must release this memory using gsk_free_buffer().
-void* gsk_export_iqm_buffer(const gs_model* model, size_t* out_size);
+// IQM specific: if 'force_single_anim' is true, all animations are merged into one.
+// Optional: provide 'out_anims' and 'out_anim_count' to receive calculated frame metadata.
+void* gsk_export_iqm_buffer(const gs_model* model, size_t* out_size, bool force_single_anim, gs_legacy_framegroup** out_anims, uint32_t* out_anim_count);
 void* gsk_export_glb_buffer(const gs_model* model, size_t* out_size);
 
 // Writers (Path-based): Helper functions that bake to memory and then write to a file.
-bool gsk_write_iqm(const char* path, const gs_model* model);
+bool gsk_write_iqm(const char* path, const gs_model* model, bool force_single_anim);
 bool gsk_write_glb(const char* path, const gs_model* model);
 bool gsk_write_fbx(const char* path, const gs_model* model, bool write_base, bool write_anim);
 
 // Memory Management
 void gsk_free_model(gs_model* model);
 void gsk_free_buffer(void* buffer);
+void gsk_free_iqm_metadata(gs_legacy_framegroup* anims, uint32_t count);
 
 // Operations: Manipulation and analysis helpers.
 void gsk_compute_bind_pose(gs_model* model);

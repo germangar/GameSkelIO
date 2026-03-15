@@ -36,7 +36,6 @@ static void copy_anim_channel_to_c(const AnimChannel& src, gs_anim_channel& dst,
 
 static gs_model* model_cpp_to_c(const Model& cpp) {
     gs_model* c = (gs_model*)calloc(1, sizeof(gs_model));
-    c->qfusion = cpp.qfusion;
     c->has_bounds = cpp.has_bounds;
     memcpy(c->mins, cpp.mins, sizeof(c->mins));
     memcpy(c->maxs, cpp.maxs, sizeof(c->maxs));
@@ -150,7 +149,6 @@ static Model model_c_to_cpp(const gs_model* c) {
     Model cpp;
     if (!c) return cpp;
 
-    cpp.qfusion = c->qfusion;
     cpp.has_bounds = c->has_bounds;
     memcpy(cpp.mins, c->mins, sizeof(cpp.mins));
     memcpy(cpp.maxs, c->maxs, sizeof(cpp.maxs));
@@ -286,18 +284,39 @@ extern "C" gs_model* gsk_load_skm(const char* path) {
 // Writers
 // ---------------------------------------------------------
 
-extern "C" void* gsk_export_iqm_buffer(const gs_model* model, size_t* out_size) {
+extern "C" void* gsk_export_iqm_buffer(const gs_model* model, size_t* out_size, bool force_single_anim, gs_legacy_framegroup** out_anims, uint32_t* out_anim_count) {
     if (!model || !out_size) return nullptr;
     Model cpp = model_c_to_cpp(model);
-    std::vector<uint8_t> buffer = write_iqm_to_memory(cpp);
+    
+    std::vector<gs_legacy_framegroup> metadata;
+    std::vector<uint8_t> buffer = write_iqm_to_memory(cpp, force_single_anim, out_anims ? &metadata : nullptr);
+    
     if (buffer.empty()) {
         *out_size = 0;
         return nullptr;
     }
+
+    if (out_anims && out_anim_count) {
+        *out_anim_count = (uint32_t)metadata.size();
+        *out_anims = (gs_legacy_framegroup*)malloc(metadata.size() * sizeof(gs_legacy_framegroup));
+        for (size_t i = 0; i < metadata.size(); ++i) {
+            (*out_anims)[i] = metadata[i];
+            (*out_anims)[i].name = my_strdup(metadata[i].name);
+        }
+    }
+
     *out_size = buffer.size();
     void* ptr = malloc(buffer.size());
     memcpy(ptr, buffer.data(), buffer.size());
     return ptr;
+}
+
+extern "C" void gsk_free_iqm_metadata(gs_legacy_framegroup* anims, uint32_t count) {
+    if (!anims) return;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (anims[i].name) free((void*)anims[i].name);
+    }
+    free(anims);
 }
 
 extern "C" void* gsk_export_glb_buffer(const gs_model* model, size_t* out_size) {
@@ -314,10 +333,10 @@ extern "C" void* gsk_export_glb_buffer(const gs_model* model, size_t* out_size) 
     return ptr;
 }
 
-extern "C" bool gsk_write_iqm(const char* path, const gs_model* model) {
+extern "C" bool gsk_write_iqm(const char* path, const gs_model* model, bool force_single_anim) {
     if (!model) return false;
     Model cpp = model_c_to_cpp(model);
-    return write_iqm(cpp, path);
+    return write_iqm(cpp, path, force_single_anim);
 }
 
 extern "C" bool gsk_write_glb(const char* path, const gs_model* model) {

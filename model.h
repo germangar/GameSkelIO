@@ -65,8 +65,6 @@ struct Model {
     // Indices (shared buffer)
     std::vector<uint32_t> indices;
 
-    bool qfusion = false;
-
     // Bind-pose transform cache
     std::vector<mat4> world_matrices;
     std::vector<mat4> ibms; // Loaded/Source IBMs
@@ -81,24 +79,34 @@ struct Model {
 
     // Helper to calculate bind pose (non-destructive)
     void compute_bind_pose() {
-        world_matrices.resize(joints.size());
-        computed_ibms.resize(joints.size());
-        for (size_t i = 0; i < joints.size(); ++i) {
-            const Joint& j = joints[i];
-            float q[4] = { j.rotate[0], j.rotate[1], j.rotate[2], j.rotate[3] };
-            quat_normalize(q);
-            mat4 local = mat4_from_trs(j.translate, q, j.scale);
-            if (j.parent >= 0) {
-                if (j.parent < (int)i) {
-                    world_matrices[i] = mat4_mul(world_matrices[j.parent], local);
-                } else {
-                    // Out of order or cyclic - fallback to local until validation pass fixes/flags it
-                    world_matrices[i] = local;
+        world_matrices.assign(joints.size(), mat4_identity());
+        computed_ibms.assign(joints.size(), mat4_identity());
+        std::vector<bool> computed(joints.size(), false);
+        size_t num_computed = 0;
+
+        // Iterative passes to handle out-of-order joint declarations
+        while (num_computed < joints.size()) {
+            size_t added = 0;
+            for (size_t i = 0; i < joints.size(); ++i) {
+                if (computed[i]) continue;
+                int p = joints[i].parent;
+                if (p == -1 || (p >= 0 && p < (int)joints.size() && computed[p])) {
+                    const Joint& j = joints[i];
+                    float q[4] = { j.rotate[0], j.rotate[1], j.rotate[2], j.rotate[3] };
+                    quat_normalize(q);
+                    mat4 local = mat4_from_trs(j.translate, q, j.scale);
+                    if (p >= 0) {
+                        world_matrices[i] = mat4_mul(world_matrices[p], local);
+                    } else {
+                        world_matrices[i] = local;
+                    }
+                    computed_ibms[i] = mat4_invert(world_matrices[i]);
+                    computed[i] = true;
+                    added++;
+                    num_computed++;
                 }
-            } else {
-                world_matrices[i] = local;
             }
-            computed_ibms[i] = mat4_invert(world_matrices[i]);
+            if (added == 0) break; // Skeleton has cycles or invalid parent references
         }
     }
 

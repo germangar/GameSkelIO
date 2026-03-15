@@ -123,11 +123,11 @@ int main(int argc, char** argv) {
     const char* out_path = argv[2];
 
     gs_model* model = NULL;
-    bool qfusion = false;
+    bool force_single_anim = false;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--qfusion") == 0) {
-            qfusion = true;
+            force_single_anim = true;
         }
     }
 
@@ -231,8 +231,6 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    model->qfusion = qfusion;
-
     // Universal Sanitization & Initialization
     if (!gsk_validate_skeleton(model)) {
         printf("Reordering skeleton for topological consistency...\n");
@@ -264,7 +262,7 @@ int main(int argc, char** argv) {
 
     if (ends_with(unique_out, ".iqm")) {
         printf("Writing IQM: %s...\n", unique_out);
-        if (!gsk_write_iqm(unique_out, model)) ret_code = 3;
+        if (!gsk_write_iqm(unique_out, model, force_single_anim)) ret_code = 3;
     } else if (ends_with(unique_out, ".fbx")) {
         bool write_base = true;
         bool write_anim = true;

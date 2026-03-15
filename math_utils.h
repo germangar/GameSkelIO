@@ -66,11 +66,7 @@ inline void quat_to_euler(const float* q, float* euler) {
     }
 }
 
-inline float asin_clamped(float v) {
-    if (v <= -1.0f) return -1.57079632679f;
-    if (v >= 1.0f) return 1.57079632679f;
-    return std::asin(v);
-}
+
 
 // Picks the solution nearest to prev_euler to avoid 180-degree flips through gimbal lock.
 // This solver uses a robust "Quad-Branch" selection strategy:
