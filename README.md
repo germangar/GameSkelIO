@@ -97,9 +97,7 @@ if (model) {
 }
 ```
 
-```
 
----
 
 ## The Converter Tool (`gskelconv`)
 
