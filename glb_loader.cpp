@@ -136,14 +136,14 @@ bool load_glb(const char* path, Model& out) {
             AnimationDef ad;
             ad.name = anim->name ? anim->name : "anim_" + std::to_string(i);
             std::replace(ad.name.begin(), ad.name.end(), ' ', '_');
-            ad.track.bones.resize(out.joints.size());
+            ad.bones.resize(out.joints.size());
 
             for (size_t j = 0; j < anim->channels_count; ++j) {
                 cgltf_animation_channel* chan = &anim->channels[j];
                 if (!chan->target_node) continue;
                 
                 int ji = node_to_joint[chan->target_node];
-                BoneAnim& ba = ad.track.bones[ji];
+                BoneAnim& ba = ad.bones[ji];
                 AnimChannel* target = nullptr;
 
                 if (chan->target_path == cgltf_animation_path_type_translation) target = &ba.translation;

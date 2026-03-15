@@ -241,7 +241,7 @@ bool write_glb(const Model& model, const char* output_path) {
         for (size_t ai = 0; ai < num_anims; ++ai) {
             const AnimationDef& def = model.animations[ai];
             size_t active_channels_count = 0;
-            for (const auto& ba : def.track.bones) {
+            for (const auto& ba : def.bones) {
                 if (!ba.translation.times.empty()) active_channels_count++;
                 if (!ba.rotation.times.empty()) active_channels_count++;
                 if (!ba.scale.times.empty()) active_channels_count++;
@@ -257,7 +257,7 @@ bool write_glb(const Model& model, const char* output_path) {
 
             uint32_t ch_idx = 0;
             for (size_t ji = 0; ji < num_joints; ++ji) {
-                const BoneAnim& ba = def.track.bones[ji];
+                const BoneAnim& ba = def.bones[ji];
                 auto add_chan = [&](const AnimChannel& chan, cgltf_animation_path_type path, int comps) {
                     if (chan.times.empty()) return;
                     size_t ts_off = buf.size();

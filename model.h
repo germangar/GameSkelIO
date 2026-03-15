@@ -33,14 +33,9 @@ struct BoneAnim {
     AnimChannel scale;
 };
 
-struct AnimationTrack {
-    std::vector<BoneAnim> bones; // One per joint in the model
-};
-
 struct AnimationDef {
     std::string name;
-    
-    AnimationTrack track; // The actual sparse data
+    std::vector<BoneAnim> bones; // One per joint in the model
 };
 
 struct Mesh {
@@ -194,10 +189,10 @@ struct Model {
             std::vector<BoneAnim> new_bones(joints.size());
             for (size_t i = 0; i < old_joints.size(); ++i) {
                 if (old_to_new[i] != -1) {
-                    new_bones[old_to_new[i]] = ad.track.bones[i];
+                    new_bones[old_to_new[i]] = ad.bones[i];
                 }
             }
-            ad.track.bones = new_bones;
+            ad.bones = new_bones;
         }
     }
 
@@ -215,7 +210,7 @@ struct Model {
 
         const AnimationDef& anim = animations[anim_idx];
         for (size_t i = 0; i < joints.size(); ++i) {
-            const BoneAnim& ba = anim.track.bones[i];
+            const BoneAnim& ba = anim.bones[i];
             Pose& p = out_poses[i];
 
             // Default to bind pose

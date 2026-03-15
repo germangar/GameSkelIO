@@ -106,10 +106,10 @@ int main(int argc, char** argv) {
 
     size_t total_keys = 0;
     for (uint32_t i = 0; i < model->num_animations; ++i) {
-        for (uint32_t j = 0; j < model->animations[i].track.num_bones; ++j) {
-            total_keys += model->animations[i].track.bones[j].translation.num_keys + 
-                          model->animations[i].track.bones[j].rotation.num_keys + 
-                          model->animations[i].track.bones[j].scale.num_keys;
+        for (uint32_t j = 0; j < model->animations[i].num_bones; ++j) {
+            total_keys += model->animations[i].bones[j].translation.num_keys + 
+                          model->animations[i].bones[j].rotation.num_keys + 
+                          model->animations[i].bones[j].scale.num_keys;
         }
     }
 

@@ -76,13 +76,13 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         for (size_t i = 0; i < c->num_animations; ++i) {
             c->animations[i].name = my_strdup(cpp.animations[i].name);
             
-            c->animations[i].track.num_bones = cpp.animations[i].track.bones.size();
-            if (c->animations[i].track.num_bones > 0) {
-                c->animations[i].track.bones = (gs_bone_anim*)calloc(c->animations[i].track.num_bones, sizeof(gs_bone_anim));
-                for (size_t j = 0; j < c->animations[i].track.num_bones; ++j) {
-                    copy_anim_channel_to_c(cpp.animations[i].track.bones[j].translation, c->animations[i].track.bones[j].translation, 3);
-                    copy_anim_channel_to_c(cpp.animations[i].track.bones[j].rotation, c->animations[i].track.bones[j].rotation, 4);
-                    copy_anim_channel_to_c(cpp.animations[i].track.bones[j].scale, c->animations[i].track.bones[j].scale, 3);
+            c->animations[i].num_bones = cpp.animations[i].bones.size();
+            if (c->animations[i].num_bones > 0) {
+                c->animations[i].bones = (gs_bone_anim*)calloc(c->animations[i].num_bones, sizeof(gs_bone_anim));
+                for (size_t j = 0; j < c->animations[i].num_bones; ++j) {
+                    copy_anim_channel_to_c(cpp.animations[i].bones[j].translation, c->animations[i].bones[j].translation, 3);
+                    copy_anim_channel_to_c(cpp.animations[i].bones[j].rotation, c->animations[i].bones[j].rotation, 4);
+                    copy_anim_channel_to_c(cpp.animations[i].bones[j].scale, c->animations[i].bones[j].scale, 3);
                 }
             }
         }
@@ -188,12 +188,12 @@ static Model model_c_to_cpp(const gs_model* c) {
         for (uint32_t i = 0; i < c->num_animations; ++i) {
             if (c->animations[i].name) cpp.animations[i].name = c->animations[i].name;
             
-            if (c->animations[i].track.num_bones > 0 && c->animations[i].track.bones) {
-                cpp.animations[i].track.bones.resize(c->animations[i].track.num_bones);
-                for (uint32_t j = 0; j < c->animations[i].track.num_bones; ++j) {
-                    copy_anim_channel_to_cpp(c->animations[i].track.bones[j].translation, cpp.animations[i].track.bones[j].translation, 3);
-                    copy_anim_channel_to_cpp(c->animations[i].track.bones[j].rotation, cpp.animations[i].track.bones[j].rotation, 4);
-                    copy_anim_channel_to_cpp(c->animations[i].track.bones[j].scale, cpp.animations[i].track.bones[j].scale, 3);
+            if (c->animations[i].num_bones > 0 && c->animations[i].bones) {
+                cpp.animations[i].bones.resize(c->animations[i].num_bones);
+                for (uint32_t j = 0; j < c->animations[i].num_bones; ++j) {
+                    copy_anim_channel_to_cpp(c->animations[i].bones[j].translation, cpp.animations[i].bones[j].translation, 3);
+                    copy_anim_channel_to_cpp(c->animations[i].bones[j].rotation, cpp.animations[i].bones[j].rotation, 4);
+                    copy_anim_channel_to_cpp(c->animations[i].bones[j].scale, cpp.animations[i].bones[j].scale, 3);
                 }
             }
         }
@@ -316,16 +316,16 @@ extern "C" void gsk_free_model(gs_model* model) {
     if (model->animations) {
         for (uint32_t i = 0; i < model->num_animations; ++i) {
             free(model->animations[i].name);
-            if (model->animations[i].track.bones) {
-                for (uint32_t j = 0; j < model->animations[i].track.num_bones; ++j) {
-                    free(model->animations[i].track.bones[j].translation.times);
-                    free(model->animations[i].track.bones[j].translation.values);
-                    free(model->animations[i].track.bones[j].rotation.times);
-                    free(model->animations[i].track.bones[j].rotation.values);
-                    free(model->animations[i].track.bones[j].scale.times);
-                    free(model->animations[i].track.bones[j].scale.values);
+            if (model->animations[i].bones) {
+                for (uint32_t j = 0; j < model->animations[i].num_bones; ++j) {
+                    free(model->animations[i].bones[j].translation.times);
+                    free(model->animations[i].bones[j].translation.values);
+                    free(model->animations[i].bones[j].rotation.times);
+                    free(model->animations[i].bones[j].rotation.values);
+                    free(model->animations[i].bones[j].scale.times);
+                    free(model->animations[i].bones[j].scale.values);
                 }
-                free(model->animations[i].track.bones);
+                free(model->animations[i].bones);
             }
         }
         free(model->animations);

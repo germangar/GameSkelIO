@@ -79,20 +79,13 @@ typedef struct gs_bone_anim {
 } gs_bone_anim;
 
 /** 
- * Contains the full skeletal dataset for a single animation clip.
- * 'bones' is an array of size 'num_bones', matching the model's num_joints.
- */
-typedef struct gs_animation_track {
-    uint32_t num_bones;
-    gs_bone_anim* bones;
-} gs_animation_track;
-
-/** 
  * A named animation clip (e.g., "Run", "Jump").
+ * 'bones' is an array of size 'num_bones', matching the model's num_joints.
  */
 typedef struct gs_animation {
     char* name;
-    gs_animation_track track;
+    uint32_t num_bones;
+    gs_bone_anim* bones;
 } gs_animation;
 
 /** 

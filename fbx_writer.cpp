@@ -479,7 +479,7 @@ for (size_t i = 0; i < in.joints.size(); ++i) {
             
             // Find duration for stack headers
             double max_t = 0;
-            for (const auto& ba : ad.track.bones) {
+            for (const auto& ba : ad.bones) {
                 if (!ba.translation.times.empty()) max_t = std::max(max_t, ba.translation.times.back());
                 if (!ba.rotation.times.empty()) max_t = std::max(max_t, ba.rotation.times.back());
                 if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
@@ -504,7 +504,7 @@ for (size_t i = 0; i < in.joints.size(); ++i) {
             for (size_t ji = 0; ji < in.joints.size(); ++ji) {
                 /*if (std::string(in.joints[ji].name).find("elvis") != std::string::npos) {
                     std::cout << "WRITER processing joint: " << in.joints[ji].name << std::endl;
-                }*/                const BoneAnim& ba = ad.track.bones[ji];
+                }*/                const BoneAnim& ba = ad.bones[ji];
                 if (ba.translation.times.empty() && ba.rotation.times.empty() && ba.scale.times.empty()) continue;
 
                 auto add_curve_node = [&](const char* name, const char* type) {

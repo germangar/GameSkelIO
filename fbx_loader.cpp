@@ -210,7 +210,7 @@ bool load_fbx(const char* path, Model& out) {
 
         AnimationDef ad;
         ad.name = stack->name.data;
-        ad.track.bones.resize(out.joints.size());
+        ad.bones.resize(out.joints.size());
 
         for (size_t ji = 0; ji < out.joints.size(); ++ji) {
             ufbx_node* node = nullptr;
@@ -225,7 +225,7 @@ bool load_fbx(const char* path, Model& out) {
             ufbx_baked_node* baked_node = ufbx_find_baked_node(baked_anim, node);
             if (!baked_node) continue;
 
-            BoneAnim& ba = ad.track.bones[ji];
+            BoneAnim& ba = ad.bones[ji];
 
             // Extract TRS (with bind-pose relative hemispheric and scale stabilization)
             float prev_q[4];

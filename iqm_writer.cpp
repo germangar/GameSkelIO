@@ -74,7 +74,7 @@ bool write_iqm(const Model& model, const char* output_path) {
         
         // Determine number of frames for this animation in IQM
         double max_t = 0;
-        for (const auto& ba : ad.track.bones) {
+        for (const auto& ba : ad.bones) {
             if (!ba.translation.times.empty()) max_t = std::max(max_t, ba.translation.times.back());
             if (!ba.rotation.times.empty()) max_t = std::max(max_t, ba.rotation.times.back());
             if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
@@ -111,7 +111,7 @@ bool write_iqm(const Model& model, const char* output_path) {
 
             // Calculate actual duration of this clip
             double max_t = 0;
-            for (const auto& ba : ad.track.bones) {
+            for (const auto& ba : ad.bones) {
                 if (!ba.translation.times.empty()) max_t = std::max(max_t, ba.translation.times.back());
                 if (!ba.rotation.times.empty()) max_t = std::max(max_t, ba.rotation.times.back());
                 if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());

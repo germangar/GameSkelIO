@@ -177,14 +177,14 @@ bool load_iqm(const char* path, Model& out) {
         for (const auto& ace : entries) {
             AnimationDef ad;
             ad.name = ace.name;
-            ad.track.bones.resize(out.joints.size());
+            ad.bones.resize(out.joints.size());
             for (int f = ace.first_frame; f <= ace.last_frame; ++f) {
                 if (f < 0 || f >= (int)hdr.num_frames) continue;
                 double time = (double)(f - ace.first_frame) / ace.fps;
                 float* fptr = dense_frames.data() + (size_t)f * hdr.num_poses * 10;
 
                 for (size_t ji = 0; ji < out.joints.size(); ++ji) {
-                    BoneAnim& ba = ad.track.bones[ji];
+                    BoneAnim& ba = ad.bones[ji];
                     float* bptr = fptr + ji * 10;
                     ba.translation.times.push_back(time);
                     ba.translation.values.push_back(bptr[0]);

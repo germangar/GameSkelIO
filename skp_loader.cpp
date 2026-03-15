@@ -263,13 +263,13 @@ bool load_skm(const char* path, Model& out) {
     for (const auto& entry : entries) {
         AnimationDef ad;
         ad.name = entry.name;
-        ad.track.bones.resize(num_bones);
+        ad.bones.resize(num_bones);
         for (int f = entry.first_frame; f <= entry.last_frame; ++f) {      
             if (f < 0 || f >= (int)num_frames) continue;
             double time = (double)(f - entry.first_frame) / entry.fps;     
 
             for (uint32_t p = 0; p < num_bones; ++p) {
-                BoneAnim& ba = ad.track.bones[p];
+                BoneAnim& ba = ad.bones[p];
                 float t[3]; std::memcpy(t, frame_poses[f][p].origin, 12);
                 float r[4]; std::memcpy(r, frame_poses[f][p].quat, 16);  
 
