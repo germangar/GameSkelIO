@@ -90,10 +90,7 @@ bool load_skm(const char* path, Model& out) {
     std::string skp_path = base_path + ".skp";
 
     std::ifstream f_skp(skp_path, std::ios::binary);
-    if (!f_skp) {
-        std::cerr << "Failed to open SKP file: " << skp_path << std::endl;
-        return false;
-    }
+    if (!f_skp) return false;
     f_skp.seekg(0, std::ios::end);
     size_t skp_size = f_skp.tellg();
     f_skp.seekg(0, std::ios::beg);
@@ -101,26 +98,41 @@ bool load_skm(const char* path, Model& out) {
     f_skp.read(skp_buf.data(), skp_size);
     f_skp.close();
 
-    dskpheader_t* skp_hdr = (dskpheader_t*)skp_buf.data();
-    if (std::memcmp(skp_hdr->id, "SKM1", 4) != 0) {
-        std::cerr << "Invalid SKP header magic" << std::endl;
-        return false;
-    }
+    std::ifstream f_skm(skm_path, std::ios::binary);
+    if (!f_skm) return false;
+    f_skm.seekg(0, std::ios::end);
+    size_t skm_size = f_skm.tellg();
+    f_skm.seekg(0, std::ios::beg);
+    std::vector<char> skm_buf(skm_size);
+    f_skm.read(skm_buf.data(), skm_size);
+    f_skm.close();
+
+    return load_skm_from_memory(skm_buf.data(), skm_size, skp_buf.data(), skp_size, out);
+}
+
+bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp_data, size_t skp_size, Model& out) {
+    if (!skm_data || !skp_data) return false;
+
+    const char* skp_buf = (const char*)skp_data;
+    const char* skm_buf = (const char*)skm_data;
+
+    dskpheader_t* skp_hdr = (dskpheader_t*)skp_buf;
+    if (std::memcmp(skp_hdr->id, "SKM1", 4) != 0) return false;
 
     uint32_t num_bones = skp_hdr->num_bones;
     uint32_t num_frames = skp_hdr->num_frames;
 
     out.joints.resize(num_bones);
-    dskpbone_t* skp_bones = (dskpbone_t*)(skp_buf.data() + skp_hdr->ofs_bones);
+    dskpbone_t* skp_bones = (dskpbone_t*)(skp_buf + skp_hdr->ofs_bones);
     for (uint32_t i = 0; i < num_bones; ++i) {
         out.joints[i].name = skp_bones[i].name;
         out.joints[i].parent = skp_bones[i].parent;
     }
 
     std::vector<std::vector<dskpbonepose_t>> frame_poses(num_frames, std::vector<dskpbonepose_t>(num_bones));
-    dskpframe_t* skp_frames = (dskpframe_t*)(skp_buf.data() + skp_hdr->ofs_frames);
+    dskpframe_t* skp_frames = (dskpframe_t*)(skp_buf + skp_hdr->ofs_frames);
     for (uint32_t f = 0; f < num_frames; ++f) {
-        dskpbonepose_t* poses = (dskpbonepose_t*)(skp_buf.data() + skp_frames[f].ofs_bonepositions);
+        dskpbonepose_t* poses = (dskpbonepose_t*)(skp_buf + skp_frames[f].ofs_bonepositions);
         std::memcpy(frame_poses[f].data(), poses, num_bones * sizeof(dskpbonepose_t));
     }
 
@@ -154,25 +166,10 @@ bool load_skm(const char* path, Model& out) {
         std::memcpy(out.joints[i].scale, s, 12);
     }
 
-    std::ifstream f_skm(skm_path, std::ios::binary);
-    if (!f_skm) {
-        std::cerr << "Failed to open SKM file: " << skm_path << std::endl;
-        return false;
-    }
-    f_skm.seekg(0, std::ios::end);
-    size_t skm_size = f_skm.tellg();
-    f_skm.seekg(0, std::ios::beg);
-    std::vector<char> skm_buf(skm_size);
-    f_skm.read(skm_buf.data(), skm_size);
-    f_skm.close();
+    dskmheader_t* skm_hdr = (dskmheader_t*)skm_buf;
+    if (std::memcmp(skm_hdr->id, "SKM1", 4) != 0) return false;
 
-    dskmheader_t* skm_hdr = (dskmheader_t*)skm_buf.data();
-    if (std::memcmp(skm_hdr->id, "SKM1", 4) != 0) {
-        std::cerr << "Invalid SKM header magic" << std::endl;
-        return false;
-    }
-
-    dskmmesh_t* skm_meshes = (dskmmesh_t*)(skm_buf.data() + skm_hdr->ofs_meshes);
+    dskmmesh_t* skm_meshes = (dskmmesh_t*)(skm_buf + skm_hdr->ofs_meshes);
     out.meshes.resize(skm_hdr->num_meshes);
 
     for (uint32_t m = 0; m < skm_hdr->num_meshes; ++m) {
@@ -190,7 +187,7 @@ bool load_skm(const char* path, Model& out) {
         out.joints_0.resize((mesh.first_vertex + mesh.num_vertexes) * 4, 0);
         out.weights_0.resize((mesh.first_vertex + mesh.num_vertexes) * 4, 0.0f);
 
-        unsigned char* v_ptr = (unsigned char*)skm_buf.data() + skm_meshes[m].ofs_verts;
+        unsigned char* v_ptr = (unsigned char*)skm_buf + skm_meshes[m].ofs_verts;
         for (uint32_t v = 0; v < mesh.num_vertexes; ++v) {
             unsigned int num_influences = *(unsigned int*)v_ptr;
             v_ptr += sizeof(unsigned int);
@@ -237,13 +234,13 @@ bool load_skm(const char* path, Model& out) {
             out.normals[(mesh.first_vertex + v) * 3 + 2] = -zup_norm[1]; 
         }
 
-        dskmcoord_t* st = (dskmcoord_t*)(skm_buf.data() + skm_meshes[m].ofs_texcoords);
+        dskmcoord_t* st = (dskmcoord_t*)(skm_buf + skm_meshes[m].ofs_texcoords);
         for (uint32_t v = 0; v < mesh.num_vertexes; ++v) {
             out.texcoords[(mesh.first_vertex + v) * 2 + 0] = st[v].st[0];
             out.texcoords[(mesh.first_vertex + v) * 2 + 1] = st[v].st[1];
         }
 
-        unsigned int* idx = (unsigned int*)(skm_buf.data() + skm_meshes[m].ofs_indices);
+        unsigned int* idx = (unsigned int*)(skm_buf + skm_meshes[m].ofs_indices);
         for (uint32_t t = 0; t < mesh.num_triangles; ++t) {
             out.indices.push_back(mesh.first_vertex + idx[t * 3 + 0]);   
             out.indices.push_back(mesh.first_vertex + idx[t * 3 + 2]);
@@ -251,54 +248,58 @@ bool load_skm(const char* path, Model& out) {
         }
     }
 
-    std::string cfg_path = find_animation_cfg(skm_path);
-    std::vector<AnimConfigEntry> entries;
-    if (!cfg_path.empty()) {
-        std::cout << "Found animation config: " << cfg_path << std::endl;
-        entries = parse_animation_cfg(cfg_path);
-    } else {
-        entries.push_back({"all", 0, (int)num_frames - 1, 0, BASE_FPS});
-    }
+    // Frames
+    if (num_frames > 0) {
+        struct TempAnimRange { std::string name; int first, last; float fps; };
+        std::vector<TempAnimRange> ranges;
 
-    for (const auto& entry : entries) {
-        AnimationDef ad;
-        ad.name = entry.name;
-        ad.bones.resize(num_bones);
-        for (int f = entry.first_frame; f <= entry.last_frame; ++f) {      
-            if (f < 0 || f >= (int)num_frames) continue;
-            double time = (double)(f - entry.first_frame) / entry.fps;     
-
-            for (uint32_t p = 0; p < num_bones; ++p) {
-                BoneAnim& ba = ad.bones[p];
-                float t[3]; std::memcpy(t, frame_poses[f][p].origin, 12);
-                float r[4]; std::memcpy(r, frame_poses[f][p].quat, 16);  
-
-                if (out.joints[p].parent == -1) {
-                    float tx = t[0], ty = t[1], tz = t[2];
-                    t[0] = tx; t[1] = tz; t[2] = -ty;
-                    float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
-                    float r_new[4];
-                    quat_mul(q_rot, r, r_new);
-                    quat_normalize(r_new);
-                    std::memcpy(r, r_new, 16);
-                }
-
-                ba.translation.times.push_back(time);
-                ba.translation.values.push_back(t[0]);
-                ba.translation.values.push_back(t[1]);
-                ba.translation.values.push_back(t[2]);
-                ba.rotation.times.push_back(time);
-                ba.rotation.values.push_back(r[0]);
-                ba.rotation.values.push_back(r[1]);
-                ba.rotation.values.push_back(r[2]);
-                ba.rotation.values.push_back(r[3]);
-                ba.scale.times.push_back(time);
-                ba.scale.values.push_back(1.0f);
-                ba.scale.values.push_back(1.0f);
-                ba.scale.values.push_back(1.0f);
-            }
+        if (out.qfusion) {
+            ranges.push_back({"base", 0, 0, BASE_FPS});
+            ranges.push_back({"STAND_IDLE", 1, 39, BASE_FPS});
+        } else {
+            ranges.push_back({"all", 0, (int)num_frames - 1, BASE_FPS});
         }
-        out.animations.push_back(ad);
+
+        for (const auto& range : ranges) {
+            AnimationDef ad;
+            ad.name = range.name;
+            ad.bones.resize(num_bones);
+            for (int f = range.first; f <= range.last; ++f) {      
+                if (f < 0 || f >= (int)num_frames) continue;
+                double time = (double)(f - range.first) / range.fps;     
+
+                for (uint32_t p = 0; p < num_bones; ++p) {
+                    BoneAnim& ba = ad.bones[p];
+                    float t[3]; std::memcpy(t, frame_poses[f][p].origin, 12);
+                    float r[4]; std::memcpy(r, frame_poses[f][p].quat, 16);  
+
+                    if (out.joints[p].parent == -1) {
+                        float tx = t[0], ty = t[1], tz = t[2];
+                        t[0] = tx; t[1] = tz; t[2] = -ty;
+                        float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
+                        float r_new[4];
+                        quat_mul(q_rot, r, r_new);
+                        quat_normalize(r_new);
+                        std::memcpy(r, r_new, 16);
+                    }
+
+                    ba.translation.times.push_back(time);
+                    ba.translation.values.push_back(t[0]);
+                    ba.translation.values.push_back(t[1]);
+                    ba.translation.values.push_back(t[2]);
+                    ba.rotation.times.push_back(time);
+                    ba.rotation.values.push_back(r[0]);
+                    ba.rotation.values.push_back(r[1]);
+                    ba.rotation.values.push_back(r[2]);
+                    ba.rotation.values.push_back(r[3]);
+                    ba.scale.times.push_back(time);
+                    ba.scale.values.push_back(1.0f);
+                    ba.scale.values.push_back(1.0f);
+                    ba.scale.values.push_back(1.0f);
+                }
+            }
+            out.animations.push_back(ad);
+        }
     }
 
     return true;

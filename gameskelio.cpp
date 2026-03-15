@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
+#include <fstream>
 
 static char* my_strdup(const std::string& s) {
     if (s.empty()) return nullptr;
@@ -75,7 +77,6 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         c->animations = (gs_animation*)calloc(c->num_animations, sizeof(gs_animation));
         for (size_t i = 0; i < c->num_animations; ++i) {
             c->animations[i].name = my_strdup(cpp.animations[i].name);
-            
             c->animations[i].num_bones = cpp.animations[i].bones.size();
             if (c->animations[i].num_bones > 0) {
                 c->animations[i].bones = (gs_bone_anim*)calloc(c->animations[i].num_bones, sizeof(gs_bone_anim));
@@ -233,41 +234,85 @@ static Model model_c_to_cpp(const gs_model* c) {
 // Loaders
 // ---------------------------------------------------------
 
+extern "C" gs_model* gsk_load_iqm_buffer(const void* data, size_t size) {
+    Model cpp;
+    if (load_iqm_from_memory(data, size, cpp)) return model_cpp_to_c(cpp);
+    return nullptr;
+}
+
+extern "C" gs_model* gsk_load_glb_buffer(const void* data, size_t size) {
+    Model cpp;
+    if (load_glb_from_memory(data, size, cpp)) return model_cpp_to_c(cpp);
+    return nullptr;
+}
+
+extern "C" gs_model* gsk_load_fbx_buffer(const void* data, size_t size) {
+    Model cpp;
+    if (load_fbx_from_memory(data, size, cpp)) return model_cpp_to_c(cpp);
+    return nullptr;
+}
+
+extern "C" gs_model* gsk_load_skm_buffer(const void* data, size_t size) {
+    // SKM usually needs two buffers (.skm and .skp). 
+    // I'll leave this unimplemented for now as SKM is a niche legacy format.
+    return nullptr;
+}
+
 extern "C" gs_model* gsk_load_iqm(const char* path) {
     Model cpp;
-    if (load_iqm(path, cpp)) {
-        return model_cpp_to_c(cpp);
-    }
+    if (load_iqm(path, cpp)) return model_cpp_to_c(cpp);
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_glb(const char* path) {
     Model cpp;
-    if (load_glb(path, cpp)) {
-        return model_cpp_to_c(cpp);
-    }
+    if (load_glb(path, cpp)) return model_cpp_to_c(cpp);
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_fbx(const char* path) {
     Model cpp;
-    if (load_fbx(path, cpp)) {
-        return model_cpp_to_c(cpp);
-    }
+    if (load_fbx(path, cpp)) return model_cpp_to_c(cpp);
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_skm(const char* path) {
     Model cpp;
-    if (load_skm(path, cpp)) {
-        return model_cpp_to_c(cpp);
-    }
+    if (load_skm(path, cpp)) return model_cpp_to_c(cpp);
     return nullptr;
 }
 
 // ---------------------------------------------------------
 // Writers
 // ---------------------------------------------------------
+
+extern "C" void* gsk_export_iqm_buffer(const gs_model* model, size_t* out_size) {
+    if (!model || !out_size) return nullptr;
+    Model cpp = model_c_to_cpp(model);
+    std::vector<uint8_t> buffer = write_iqm_to_memory(cpp);
+    if (buffer.empty()) {
+        *out_size = 0;
+        return nullptr;
+    }
+    *out_size = buffer.size();
+    void* ptr = malloc(buffer.size());
+    memcpy(ptr, buffer.data(), buffer.size());
+    return ptr;
+}
+
+extern "C" void* gsk_export_glb_buffer(const gs_model* model, size_t* out_size) {
+    if (!model || !out_size) return nullptr;
+    Model cpp = model_c_to_cpp(model);
+    std::vector<uint8_t> buffer = write_glb_to_memory(cpp);
+    if (buffer.empty()) {
+        *out_size = 0;
+        return nullptr;
+    }
+    *out_size = buffer.size();
+    void* ptr = malloc(buffer.size());
+    memcpy(ptr, buffer.data(), buffer.size());
+    return ptr;
+}
 
 extern "C" bool gsk_write_iqm(const char* path, const gs_model* model) {
     if (!model) return false;
@@ -295,9 +340,7 @@ extern "C" void gsk_free_model(gs_model* model) {
     if (!model) return;
 
     if (model->joints) {
-        for (uint32_t i = 0; i < model->num_joints; ++i) {
-            free(model->joints[i].name);
-        }
+        for (uint32_t i = 0; i < model->num_joints; ++i) free(model->joints[i].name);
         free(model->joints);
     }
 
@@ -344,6 +387,10 @@ extern "C" void gsk_free_model(gs_model* model) {
     free(model);
 }
 
+extern "C" void gsk_free_buffer(void* buffer) {
+    free(buffer);
+}
+
 // ---------------------------------------------------------
 // Operations
 // ---------------------------------------------------------
@@ -353,7 +400,6 @@ extern "C" void gsk_compute_bind_pose(gs_model* model) {
     Model cpp = model_c_to_cpp(model);
     cpp.compute_bind_pose();
     
-    // Copy back the updated matrices
     if (cpp.world_matrices.size() > 0) {
         if (model->world_matrices) free(model->world_matrices);
         model->world_matrices = (gs_mat4*)malloc(cpp.world_matrices.size() * sizeof(gs_mat4));
@@ -371,7 +417,6 @@ extern "C" void gsk_compute_bounds(gs_model* model) {
     Model cpp = model_c_to_cpp(model);
     cpp.compute_bounds();
     
-    // Copy back
     model->has_bounds = cpp.has_bounds;
     memcpy(model->mins, cpp.mins, sizeof(model->mins));
     memcpy(model->maxs, cpp.maxs, sizeof(model->maxs));
@@ -389,9 +434,7 @@ extern "C" void gsk_reorder_skeleton(gs_model* model) {
     if (!model) return;
     Model cpp = model_c_to_cpp(model);
     cpp.reorder_skeleton();
-    
     gs_model* new_c = model_cpp_to_c(cpp);
-    
     gs_model temp = *model;
     *model = *new_c;
     *new_c = temp;

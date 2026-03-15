@@ -6,30 +6,47 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <fstream>
 
 bool load_glb(const char* path, Model& out) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    f.seekg(0, std::ios::end);
+    size_t size = f.tellg();
+    f.seekg(0, std::ios::beg);
+    std::vector<char> buf(size);
+    f.read(buf.data(), size);
+    f.close();
+
+    return load_glb_from_memory(buf.data(), size, out);
+}
+
+bool load_glb_from_memory(const void* data, size_t size, Model& out) {
     cgltf_options options = {};
-    cgltf_data* data = nullptr;
-    cgltf_result result = cgltf_parse_file(&options, path, &data);
+    cgltf_data* gdata = nullptr;
+    cgltf_result result = cgltf_parse(&options, data, size, &gdata);
     if (result != cgltf_result_success) return false;
 
-    result = cgltf_load_buffers(&options, data, path);
-    if (result != cgltf_result_success) {
-        cgltf_free(data);
-        return false;
+    // For memory loading, we assume it's a self-contained GLB or the data already contains buffers.
+    if (gdata->file_type == cgltf_file_type_glb) {
+        result = cgltf_load_buffers(&options, gdata, nullptr);
+        if (result != cgltf_result_success) {
+            cgltf_free(gdata);
+            return false;
+        }
     }
 
     std::map<cgltf_node*, int> node_to_joint;
     
     // 1. Load Joints
-    for (size_t i = 0; i < data->nodes_count; ++i) {
-        cgltf_node* node = &data->nodes[i];
+    for (size_t i = 0; i < gdata->nodes_count; ++i) {
+        cgltf_node* node = &gdata->nodes[i];
         if (node->camera || node->light) continue; 
         
         node_to_joint[node] = (int)out.joints.size();
         Joint j;
         j.name = node->name ? node->name : "node_" + std::to_string(i);
-        j.parent = -1; // Will set later
+        j.parent = -1;
         
         if (node->has_translation) memcpy(j.translate, node->translation, 12);
         else { j.translate[0] = j.translate[1] = j.translate[2] = 0.0f; }
@@ -44,16 +61,16 @@ bool load_glb(const char* path, Model& out) {
     }
     
     // Set parents
-    for (size_t i = 0; i < data->nodes_count; ++i) {
-        cgltf_node* node = &data->nodes[i];
+    for (size_t i = 0; i < gdata->nodes_count; ++i) {
+        cgltf_node* node = &gdata->nodes[i];
         if (node_to_joint.count(node) && node->parent && node_to_joint.count(node->parent)) {
             out.joints[node_to_joint[node]].parent = node_to_joint[node->parent];
         }
     }
 
-    // 2. Load Meshes (simplified - take first mesh)
-    for (size_t i = 0; i < data->meshes_count; ++i) {
-        cgltf_mesh* mesh = &data->meshes[i];
+    // 2. Load Meshes
+    for (size_t i = 0; i < gdata->meshes_count; ++i) {
+        cgltf_mesh* mesh = &gdata->meshes[i];
         for (size_t j = 0; j < mesh->primitives_count; ++j) {
             cgltf_primitive* prim = &mesh->primitives[j];
             if (prim->type != cgltf_primitive_type_triangles) continue;
@@ -62,18 +79,8 @@ bool load_glb(const char* path, Model& out) {
             m.name = mesh->name ? mesh->name : "mesh";
             if (prim->material) {
                 m.material_name = prim->material->name ? prim->material->name : "material";
-                auto get_texture_uri = [](cgltf_texture_view& view) -> std::string {
-                    if (view.texture && view.texture->image && view.texture->image->uri) {
-                        return view.texture->image->uri;
-                    }
-                    return "";
-                };
-                if (prim->material->has_pbr_metallic_roughness) {
-                    m.color_map = get_texture_uri(prim->material->pbr_metallic_roughness.base_color_texture);
-                    m.roughness_map = get_texture_uri(prim->material->pbr_metallic_roughness.metallic_roughness_texture);
-                }
-                m.normal_map = get_texture_uri(prim->material->normal_texture);
-                m.occlusion_map = get_texture_uri(prim->material->occlusion_texture);
+            } else {
+                m.material_name = "default";
             }
 
             m.first_vertex = (uint32_t)out.positions.size() / 3;
@@ -101,7 +108,6 @@ bool load_glb(const char* path, Model& out) {
                 } else if (attr->type == cgltf_attribute_type_joints) {
                     size_t start = out.joints_0.size();
                     out.joints_0.resize(start + attr->data->count * 4);
-                    // cgltf handles type conversion from u16 to u8 if needed
                     for (size_t v = 0; v < attr->data->count; ++v) {
                         uint32_t joints[4];
                         cgltf_accessor_read_uint(attr->data, v, joints, 4);
@@ -128,10 +134,10 @@ bool load_glb(const char* path, Model& out) {
         }
     }
 
-    // 3. Animations (Sparse Ingest)
-    if (data->animations_count > 0 && !out.joints.empty()) {
-        for (size_t i = 0; i < data->animations_count; ++i) {
-            cgltf_animation* anim = &data->animations[i];
+    // 3. Animations
+    if (gdata->animations_count > 0 && !out.joints.empty()) {
+        for (size_t i = 0; i < gdata->animations_count; ++i) {
+            cgltf_animation* anim = &gdata->animations[i];
             
             AnimationDef ad;
             ad.name = anim->name ? anim->name : "anim_" + std::to_string(i);
@@ -172,6 +178,6 @@ bool load_glb(const char* path, Model& out) {
         }
     }
     
-    cgltf_free(data);
+    cgltf_free(gdata);
     return true;
 }

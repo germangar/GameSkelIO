@@ -5,41 +5,43 @@
 #include <map>
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 
 bool load_fbx(const char* path, Model& out) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    f.seekg(0, std::ios::end);
+    size_t size = f.tellg();
+    f.seekg(0, std::ios::beg);
+    std::vector<char> buf(size);
+    f.read(buf.data(), size);
+    f.close();
+
+    return load_fbx_from_memory(buf.data(), size, out);
+}
+
+bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
     ufbx_load_opts opts = { 0 };
-    // FBX is usually cm-based (1 unit = 1cm). Our internal representation is meters.
-    // ufbx can handle this unit conversion automatically.
     opts.target_unit_meters = 1.0f;
-    // Internal coordinate system: Y-up, Right-Handed (CCW winding).
     opts.target_axes = ufbx_axes_right_handed_y_up;
-    opts.allow_unsafe = true; // For robustness with some weird FBX files
+    opts.allow_unsafe = true;
 
     ufbx_error error;
-    ufbx_scene* scene = ufbx_load_file(path, &opts, &error);
+    ufbx_scene* scene = ufbx_load_memory(data, size, &opts, &error);
 
     if (!scene) {
-        std::cerr << "Failed to load FBX: " << error.description.data << std::endl;
+        std::cerr << "Failed to load FBX from memory: " << error.description.data << std::endl;
         return false;
     }
-
-    /*std::cout << "FBX Scene loaded: " << scene->nodes.count << " nodes, " 
-              << scene->meshes.count << " meshes, "
-              << scene->anim_stacks.count << " animations." << std::endl;*/
 
     // Phase 1.5 - Extract Skeleton (Full Hierarchy)
     std::map<ufbx_node*, int> node_to_joint;
     for (size_t i = 0; i < scene->nodes.count; ++i) {
         ufbx_node* node = scene->nodes[i];
-        
-        // Include all spatial nodes (not cameras/lights, though they can have transforms)
-        // We skip attribute-only nodes that aren't usually meaningful in our skeletal system
-        // but ufbx_node itself is always a spatial transform.
         Joint j;
         j.name = node->name.data;
-        j.parent = -1; // Set later
+        j.parent = -1;
         
-        // Local TRS - ufbx already converted to our Y-up target space
         float t[3] = { (float)node->local_transform.translation.x, (float)node->local_transform.translation.y, (float)node->local_transform.translation.z };
         float r[4] = { (float)node->local_transform.rotation.x, (float)node->local_transform.rotation.y, (float)node->local_transform.rotation.z, (float)node->local_transform.rotation.w };
         
@@ -77,40 +79,18 @@ bool load_fbx(const char* path, Model& out) {
         out_mesh.num_vertexes = (uint32_t)fmesh->num_indices;
         out_mesh.num_triangles = (uint32_t)fmesh->num_indices / 3;
         
-        // Find material and texture maps
         if (fmesh->materials.count > 0 && fmesh->materials[0]) {
-            ufbx_material* mat = fmesh->materials[0];
-            out_mesh.material_name = mat->name.data;
-
-            auto get_fbx_tex = [](ufbx_material* m, ufbx_material_map& map, const char* legacy_prop) -> std::string {
-                if (map.texture) return map.texture->filename.data;
-                // Fallback to searching by property name (legacy FBX)
-                for (size_t i = 0; i < m->textures.count; ++i) {
-                    if (m->textures[i].material_prop.data && strcmp(m->textures[i].material_prop.data, legacy_prop) == 0) {
-                        return m->textures[i].texture->filename.data;
-                    }
-                }
-                return "";
-            };
-
-            out_mesh.color_map = get_fbx_tex(mat, mat->pbr.base_color, "DiffuseColor");
-            out_mesh.normal_map = get_fbx_tex(mat, mat->pbr.normal_map, "NormalMap");
-            out_mesh.roughness_map = get_fbx_tex(mat, mat->pbr.roughness, "RoughnessSource");
-            out_mesh.occlusion_map = get_fbx_tex(mat, mat->pbr.ambient_occlusion, "OcclusionSource");
+            out_mesh.material_name = fmesh->materials[0]->name.data;
         } else {
             out_mesh.material_name = "default";
         }
 
-        // Extract vertex data in the order of fmesh->vertex_indices
         for (size_t fi = 0; fi < fmesh->num_indices; ++fi) {
             uint32_t idx = fmesh->vertex_indices[fi];
-            
-            // Position - raw from ufbx (already in Y-up target space)
             out.positions.push_back((float)fmesh->vertices[idx].x);
             out.positions.push_back((float)fmesh->vertices[idx].y);
             out.positions.push_back((float)fmesh->vertices[idx].z);
             
-            // Normal
             if (fmesh->vertex_normal.exists) {
                 ufbx_vec3 n = ufbx_get_vertex_vec3(&fmesh->vertex_normal, fi);
                 out.normals.push_back((float)n.x);
@@ -120,16 +100,14 @@ bool load_fbx(const char* path, Model& out) {
                 for (int n = 0; n < 3; ++n) out.normals.push_back(0.0f);
             }
             
-            // UV
             if (fmesh->vertex_uv.exists) {
                 ufbx_vec2 uv = ufbx_get_vertex_vec2(&fmesh->vertex_uv, fi);
                 out.texcoords.push_back((float)uv.x);
-                out.texcoords.push_back(1.0f - (float)uv.y); // Flip V
+                out.texcoords.push_back(1.0f - (float)uv.y);
             } else {
                 for (int u = 0; u < 2; ++u) out.texcoords.push_back(0.0f);
             }
 
-            // Skinning
             float weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
             uint8_t joints[4] = { 0, 0, 0, 0 };
 
@@ -148,7 +126,6 @@ bool load_fbx(const char* path, Model& out) {
                             total_w += weights[w];
                         }
                     }
-                    // Normalize
                     if (total_w > 1e-6f) {
                         for (int w = 0; w < 4; ++w) weights[w] /= total_w;
                     }
@@ -159,25 +136,18 @@ bool load_fbx(const char* path, Model& out) {
                 out.joints_0.push_back(joints[k]);
                 out.weights_0.push_back(weights[k]);
             }
-
-            // Simple 1-to-1 indexing within the mesh for now
             out.indices.push_back((uint32_t)(out_mesh.first_vertex + fi));
         }
-
         out.meshes.push_back(out_mesh);
     }
 
-    // Calculate IBMs (Inverse Bind Matrices)
+    // IBMs
     out.ibms.resize(out.joints.size());
     for (size_t ji = 0; ji < out.joints.size(); ++ji) {
         ufbx_node* node = nullptr;
         for (auto const& [n, idx] : node_to_joint) {
-            if (idx == (int)ji) {
-                node = n;
-                break;
-            }
+            if (idx == (int)ji) { node = n; break; }
         }
-        
         if (node) {
             ufbx_matrix m = node->node_to_world;
             mat4 mat;
@@ -186,27 +156,18 @@ bool load_fbx(const char* path, Model& out) {
             dest[4] = (float)m.cols[1].x; dest[5] = (float)m.cols[1].y; dest[6] = (float)m.cols[1].z; dest[7] = 0;
             dest[8] = (float)m.cols[2].x; dest[9] = (float)m.cols[2].y; dest[10] = (float)m.cols[2].z; dest[11] = 0;
             dest[12] = (float)m.cols[3].x; dest[13] = (float)m.cols[3].y; dest[14] = (float)m.cols[3].z; dest[15] = 1;
-
             out.ibms[ji] = mat4_invert(mat);
         } else {
             out.ibms[ji] = mat4_identity();
         }
     }
 
-    // Phase 4 - Extract Animations (Robust Baking)
+    // Animations
     for (size_t si = 0; si < scene->anim_stacks.count; ++si) {
         ufbx_anim_stack* stack = scene->anim_stacks[si];
-        
         ufbx_bake_opts bake_opts = { 0 };
-        // We handle coordinate space in load_opts, so bake should just follow.
-        // We want to preserve the original times as much as possible, but bake
-        // helps resolve the complex FBX transform chain (pivots, pre/post rotations).
-        
         ufbx_baked_anim* baked_anim = ufbx_bake_anim(scene, stack->anim, &bake_opts, &error);
-        if (!baked_anim) {
-            std::cerr << "Warning: Failed to bake animation stack " << stack->name.data << std::endl;
-            continue;
-        }
+        if (!baked_anim) continue;
 
         AnimationDef ad;
         ad.name = stack->name.data;
@@ -215,10 +176,7 @@ bool load_fbx(const char* path, Model& out) {
         for (size_t ji = 0; ji < out.joints.size(); ++ji) {
             ufbx_node* node = nullptr;
             for (auto const& [n, idx] : node_to_joint) {
-                if (idx == (int)ji) {
-                    node = n;
-                    break;
-                }
+                if (idx == (int)ji) { node = n; break; }
             }
             if (!node) continue;
 
@@ -226,50 +184,34 @@ bool load_fbx(const char* path, Model& out) {
             if (!baked_node) continue;
 
             BoneAnim& ba = ad.bones[ji];
-
-            // Extract TRS (with bind-pose relative hemispheric and scale stabilization)
             float prev_q[4];
-            memcpy(prev_q, out.joints[ji].rotate, 16); // Start from bind pose hemisphere
+            memcpy(prev_q, out.joints[ji].rotate, 16);
             
             double duration = stack->time_end - stack->time_begin;
             int num_frames = (int)(duration * BASE_FPS) + 1;
 
             for (int fi = 0; fi < num_frames; ++fi) {
                 double key_time = (double)fi / (double)BASE_FPS;
-                
-                // Use raw evaluate_transform instead of baked node for maximum stability
                 ufbx_transform tr = ufbx_evaluate_transform(stack->anim, node, key_time);
-                
                 float t[3] = {(float)tr.translation.x, (float)tr.translation.y, (float)tr.translation.z};
                 float q[4] = {(float)tr.rotation.x, (float)tr.rotation.y, (float)tr.rotation.z, (float)tr.rotation.w};
                 float s[3] = {(float)tr.scale.x, (float)tr.scale.y, (float)tr.scale.z};
                 
                 stabilize_trs(t, q, s);
-                
-                // Enforce hemispheric consistency
                 float dot = q[0]*prev_q[0] + q[1]*prev_q[1] + q[2]*prev_q[2] + q[3]*prev_q[3];
-                if (dot < 0) {
-                    q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2]; q[3] = -q[3];
-                    dot = -dot;
-                }
-
-                if (fi > 0 && dot < 0.707f) {
-                }
-
+                if (dot < 0) { q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2]; q[3] = -q[3]; }
                 memcpy(prev_q, q, 16);
                 
-                ba.translation.times.push_back((float)key_time);
+                ba.translation.times.push_back(key_time);
                 ba.translation.values.push_back(t[0]);
                 ba.translation.values.push_back(t[1]);
                 ba.translation.values.push_back(t[2]);
-
-                ba.rotation.times.push_back((float)key_time);
+                ba.rotation.times.push_back(key_time);
                 ba.rotation.values.push_back(q[0]);
                 ba.rotation.values.push_back(q[1]);
                 ba.rotation.values.push_back(q[2]);
                 ba.rotation.values.push_back(q[3]);
-
-                ba.scale.times.push_back((float)key_time);
+                ba.scale.times.push_back(key_time);
                 ba.scale.values.push_back(s[0]);
                 ba.scale.values.push_back(s[1]);
                 ba.scale.values.push_back(s[2]);

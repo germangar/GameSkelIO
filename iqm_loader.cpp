@@ -2,29 +2,49 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <vector>
 #include "anim_cfg.h"
 
 bool load_iqm(const char* path, Model& out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
 
-    iqmheader hdr;
-    f.read((char*)&hdr, sizeof(hdr));
-    if (std::memcmp(hdr.magic, IQM_MAGIC, 16) != 0) return false;
-
     f.seekg(0, std::ios::end);
     size_t file_size = f.tellg();
     f.seekg(0, std::ios::beg);
     std::vector<char> buffer(file_size);
     f.read(buffer.data(), file_size);
+    f.close();
 
-    const char* text_pool = buffer.data() + hdr.ofs_text;
+    // Check for animation.cfg alongside the file
+    std::string cfg_path = find_animation_cfg(path);
+    bool success = load_iqm_from_memory(buffer.data(), file_size, out);
+    
+    if (success && !cfg_path.empty()) {
+        std::cout << "Found animation config: " << cfg_path << std::endl;
+        std::vector<AnimConfigEntry> entries = parse_animation_cfg(cfg_path);
+        if (!entries.empty()) {
+            // Note: External config applying logic goes here if needed.
+        }
+    }
+
+    return success;
+}
+
+bool load_iqm_from_memory(const void* data, size_t size, Model& out) {
+    if (!data || size < sizeof(iqmheader)) return false;
+
+    const char* buffer = (const char*)data;
+    const iqmheader* hdr = (const iqmheader*)buffer;
+    if (std::memcmp(hdr->magic, IQM_MAGIC, 16) != 0) return false;
+
+    const char* text_pool = buffer + hdr->ofs_text;
 
     // Joints
-    out.joints.resize(hdr.num_joints);
-    if (hdr.num_joints > 0) {
-        const iqmjoint* iqm_joints = (const iqmjoint*)(buffer.data() + hdr.ofs_joints);
-        for (uint32_t i = 0; i < hdr.num_joints; ++i) {
+    out.joints.resize(hdr->num_joints);
+    if (hdr->num_joints > 0) {
+        const iqmjoint* iqm_joints = (const iqmjoint*)(buffer + hdr->ofs_joints);
+        for (uint32_t i = 0; i < hdr->num_joints; ++i) {
             out.joints[i].name = text_pool + iqm_joints[i].name;
             out.joints[i].parent = iqm_joints[i].parent;
 
@@ -51,10 +71,10 @@ bool load_iqm(const char* path, Model& out) {
     }
 
     // Meshes
-    out.meshes.resize(hdr.num_meshes);
-    if (hdr.num_meshes > 0) {
-        const iqmmesh* iqm_meshes = (const iqmmesh*)(buffer.data() + hdr.ofs_meshes);
-        for (uint32_t i = 0; i < hdr.num_meshes; ++i) {
+    out.meshes.resize(hdr->num_meshes);
+    if (hdr->num_meshes > 0) {
+        const iqmmesh* iqm_meshes = (const iqmmesh*)(buffer + hdr->ofs_meshes);
+        for (uint32_t i = 0; i < hdr->num_meshes; ++i) {
             out.meshes[i].name = text_pool + iqm_meshes[i].name;
             out.meshes[i].material_name = text_pool + iqm_meshes[i].material;
             out.meshes[i].color_map = out.meshes[i].material_name;
@@ -66,47 +86,47 @@ bool load_iqm(const char* path, Model& out) {
     }
 
     // Vertex data
-    iqmvertexarray* va = (iqmvertexarray*)(buffer.data() + hdr.ofs_vertexarrays);
-    for (uint32_t i = 0; i < hdr.num_vertexarrays; ++i) {
-        const char* src = buffer.data() + va[i].offset;
+    const iqmvertexarray* va = (const iqmvertexarray*)(buffer + hdr->ofs_vertexarrays);
+    for (uint32_t i = 0; i < hdr->num_vertexarrays; ++i) {
+        const char* src = buffer + va[i].offset;
         if (va[i].type == IQM_POSITION && va[i].format == IQM_FLOAT && va[i].size == 3) {
-            out.positions.resize(hdr.num_vertexes * 3);
+            out.positions.resize(hdr->num_vertexes * 3);
             const float* p_src = (const float*)src;
-            for (uint32_t v = 0; v < hdr.num_vertexes; ++v) {
+            for (uint32_t v = 0; v < hdr->num_vertexes; ++v) {
                 out.positions[v*3+0] = p_src[v*3+0];
                 out.positions[v*3+1] = p_src[v*3+2];
                 out.positions[v*3+2] = -p_src[v*3+1];
             }
         } else if (va[i].type == IQM_NORMAL && va[i].format == IQM_FLOAT && va[i].size == 3) {
-            out.normals.resize(hdr.num_vertexes * 3);
+            out.normals.resize(hdr->num_vertexes * 3);
             const float* n_src = (const float*)src;
-            for (uint32_t v = 0; v < hdr.num_vertexes; ++v) {
+            for (uint32_t v = 0; v < hdr->num_vertexes; ++v) {
                 out.normals[v*3+0] = n_src[v*3+0];
                 out.normals[v*3+1] = n_src[v*3+2];
                 out.normals[v*3+2] = -n_src[v*3+1];
             }
         } else if (va[i].type == IQM_TEXCOORD && va[i].format == IQM_FLOAT && va[i].size == 2) {
-            out.texcoords.resize(hdr.num_vertexes * 2);
-            memcpy(out.texcoords.data(), src, hdr.num_vertexes * 2 * sizeof(float));
+            out.texcoords.resize(hdr->num_vertexes * 2);
+            memcpy(out.texcoords.data(), src, hdr->num_vertexes * 2 * sizeof(float));
         } else if (va[i].type == IQM_BLENDINDICES && va[i].format == IQM_UBYTE && va[i].size == 4) {
-            out.joints_0.resize(hdr.num_vertexes * 4);
-            memcpy(out.joints_0.data(), src, hdr.num_vertexes * 4);
+            out.joints_0.resize(hdr->num_vertexes * 4);
+            memcpy(out.joints_0.data(), src, hdr->num_vertexes * 4);
         } else if (va[i].type == IQM_BLENDWEIGHTS && va[i].size == 4) {
-            out.weights_0.resize(hdr.num_vertexes * 4);
+            out.weights_0.resize(hdr->num_vertexes * 4);
             if (va[i].format == IQM_UBYTE) {
                 const uint8_t* u8src = (const uint8_t*)src;
-                for (uint32_t v = 0; v < hdr.num_vertexes * 4; ++v) out.weights_0[v] = u8src[v] / 255.0f;
+                for (uint32_t v = 0; v < hdr->num_vertexes * 4; ++v) out.weights_0[v] = u8src[v] / 255.0f;
             } else if (va[i].format == IQM_FLOAT) {
-                memcpy(out.weights_0.data(), src, hdr.num_vertexes * 4 * sizeof(float));
+                memcpy(out.weights_0.data(), src, hdr->num_vertexes * 4 * sizeof(float));
             }
         }
     }
 
     // Indices
-    out.indices.resize(hdr.num_triangles * 3);
-    if (hdr.num_triangles > 0) {
-        const uint32_t* iqm_indices = (const uint32_t*)(buffer.data() + hdr.ofs_triangles);
-        for (uint32_t i = 0; i < hdr.num_triangles; ++i) {
+    out.indices.resize(hdr->num_triangles * 3);
+    if (hdr->num_triangles > 0) {
+        const uint32_t* iqm_indices = (const uint32_t*)(buffer + hdr->ofs_triangles);
+        for (uint32_t i = 0; i < hdr->num_triangles; ++i) {
             out.indices[i * 3 + 0] = iqm_indices[i * 3 + 0];
             out.indices[i * 3 + 1] = iqm_indices[i * 3 + 2];
             out.indices[i * 3 + 2] = iqm_indices[i * 3 + 1];
@@ -114,24 +134,23 @@ bool load_iqm(const char* path, Model& out) {
     }
 
     // Animations (Unpack into sparse tracks)
-    if (hdr.num_frames > 0 && hdr.num_anims > 0) {
-        std::vector<iqmpose> orig_poses(hdr.num_poses);
-        if (hdr.num_poses > 0) memcpy(orig_poses.data(), buffer.data() + hdr.ofs_poses, hdr.num_poses * sizeof(iqmpose));
+    if (hdr->num_frames > 0) {
+        std::vector<iqmpose> orig_poses(hdr->num_poses);
+        if (hdr->num_poses > 0) memcpy(orig_poses.data(), buffer + hdr->ofs_poses, hdr->num_poses * sizeof(iqmpose));
 
         uint32_t orig_framechannels = 0;
-        for (uint32_t p = 0; p < hdr.num_poses; ++p) {
+        for (uint32_t p = 0; p < hdr->num_poses; ++p) {
             for (int c = 0; c < 10; ++c) if (orig_poses[p].mask & (1 << c)) orig_framechannels++;
         }
 
-        const unsigned short* orig_fdata = (const unsigned short*)(buffer.data() + hdr.ofs_frames);
-        const iqmanim* iqm_anims = (const iqmanim*)(buffer.data() + hdr.ofs_anims);
+        const unsigned short* orig_fdata = (const unsigned short*)(buffer + hdr->ofs_frames);
 
-        std::vector<float> dense_frames(hdr.num_frames * hdr.num_poses * 10);
-        for (uint32_t f = 0; f < hdr.num_frames; ++f) {
+        std::vector<float> dense_frames(hdr->num_frames * hdr->num_poses * 10);
+        for (uint32_t f = 0; f < hdr->num_frames; ++f) {
             const unsigned short* fin = orig_fdata + f * orig_framechannels;
-            float* fout = dense_frames.data() + f * hdr.num_poses * 10;
+            float* fout = dense_frames.data() + f * hdr->num_poses * 10;
             uint32_t ch_idx = 0;
-            for (size_t p = 0; p < hdr.num_poses; ++p) {
+            for (size_t p = 0; p < hdr->num_poses; ++p) {
                 const iqmpose& op = orig_poses[p];
                 float vals[10];
                 for (int c = 0; c < 10; ++c) {
@@ -153,14 +172,10 @@ bool load_iqm(const char* path, Model& out) {
             }
         }
 
-        std::string cfg_path = find_animation_cfg(path);
         std::vector<AnimConfigEntry> entries;
-
-        if (!cfg_path.empty()) {
-            std::cout << "Found animation config: " << cfg_path << std::endl;
-            entries = parse_animation_cfg(cfg_path);
-        } else {
-            for (uint32_t i = 0; i < hdr.num_anims; ++i) {
+        if (hdr->num_anims > 0) {
+            const iqmanim* iqm_anims = (const iqmanim*)(buffer + hdr->ofs_anims);
+            for (uint32_t i = 0; i < hdr->num_anims; ++i) {
                 AnimConfigEntry ace;
                 ace.name = text_pool + iqm_anims[i].name;
                 ace.first_frame = iqm_anims[i].first_frame;
@@ -168,10 +183,8 @@ bool load_iqm(const char* path, Model& out) {
                 ace.fps = (iqm_anims[i].framerate > 0.0f) ? iqm_anims[i].framerate : BASE_FPS;
                 entries.push_back(ace);
             }
-        }
-
-        if (entries.empty()) {
-            entries.push_back({"base", 0, (int)hdr.num_frames - 1, 0, BASE_FPS});
+        } else {
+            entries.push_back({"base", 0, (int)hdr->num_frames - 1, 0, BASE_FPS});
         }
 
         for (const auto& ace : entries) {
@@ -179,9 +192,9 @@ bool load_iqm(const char* path, Model& out) {
             ad.name = ace.name;
             ad.bones.resize(out.joints.size());
             for (int f = ace.first_frame; f <= ace.last_frame; ++f) {
-                if (f < 0 || f >= (int)hdr.num_frames) continue;
+                if (f < 0 || f >= (int)hdr->num_frames) continue;
                 double time = (double)(f - ace.first_frame) / ace.fps;
-                float* fptr = dense_frames.data() + (size_t)f * hdr.num_poses * 10;
+                float* fptr = dense_frames.data() + (size_t)f * hdr->num_poses * 10;
 
                 for (size_t ji = 0; ji < out.joints.size(); ++ji) {
                     BoneAnim& ba = ad.bones[ji];

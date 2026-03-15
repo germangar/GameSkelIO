@@ -131,19 +131,32 @@ typedef struct gs_model {
 
 // --- Endpoints ---
 
-// Loaders: Load model from file. Returns NULL on failure.
+// Loaders (Buffer-based): Load model from a memory block.
+gs_model* gsk_load_iqm_buffer(const void* data, size_t size);
+gs_model* gsk_load_glb_buffer(const void* data, size_t size);
+gs_model* gsk_load_fbx_buffer(const void* data, size_t size);
+gs_model* gsk_load_skm_buffer(const void* data, size_t size);
+
+// Loaders (Path-based): Helper functions that read a file into memory and call the buffer loaders.
 gs_model* gsk_load_iqm(const char* path);
 gs_model* gsk_load_glb(const char* path);
 gs_model* gsk_load_fbx(const char* path);
 gs_model* gsk_load_skm(const char* path);
 
-// Writers: Save model to file. Returns true on success.
+// Writers/Exporters (Buffer-based): Bake model into a specific format's binary representation.
+// Returns a pointer to the allocated memory block and sets 'out_size'.
+// Caller must release this memory using gsk_free_buffer().
+void* gsk_export_iqm_buffer(const gs_model* model, size_t* out_size);
+void* gsk_export_glb_buffer(const gs_model* model, size_t* out_size);
+
+// Writers (Path-based): Helper functions that bake to memory and then write to a file.
 bool gsk_write_iqm(const char* path, const gs_model* model);
 bool gsk_write_glb(const char* path, const gs_model* model);
 bool gsk_write_fbx(const char* path, const gs_model* model, bool write_base, bool write_anim);
 
-// Memory Management: Release all memory allocated for a model.
+// Memory Management
 void gsk_free_model(gs_model* model);
+void gsk_free_buffer(void* buffer);
 
 // Operations: Manipulation and analysis helpers.
 void gsk_compute_bind_pose(gs_model* model);
