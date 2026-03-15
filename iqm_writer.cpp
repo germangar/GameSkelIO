@@ -80,7 +80,7 @@ bool write_iqm(const Model& model, const char* output_path) {
             if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
         }
 
-        uint32_t nf = (uint32_t)std::ceil(max_t * BASE_FPS) + 1;
+        uint32_t nf = (uint32_t)std::round(max_t * BASE_FPS) + 1;
         if (nf == 1 && max_t == 0) nf = 1; // Static pose
 
         iqm_anims[i].name = write_text(text, ad.name);
@@ -109,8 +109,18 @@ bool write_iqm(const Model& model, const char* output_path) {
             uint32_t first = iqm_anims[ai].first_frame;
             uint32_t count = iqm_anims[ai].num_frames;
 
+            // Calculate actual duration of this clip
+            double max_t = 0;
+            for (const auto& ba : ad.track.bones) {
+                if (!ba.translation.times.empty()) max_t = std::max(max_t, ba.translation.times.back());
+                if (!ba.rotation.times.empty()) max_t = std::max(max_t, ba.rotation.times.back());
+                if (!ba.scale.times.empty()) max_t = std::max(max_t, ba.scale.times.back());
+            }
+
             for (uint32_t f = 0; f < count; ++f) {
-                double time = (double)f / BASE_FPS;
+                // Cheat: Linear duration remapping. 
+                // Maps the baked frame range [0, count-1] exactly to the sparse track range [0, max_t].
+                double time = (count > 1) ? (double)f * (max_t / (double)(count - 1)) : 0.0;
                 model.evaluate_animation((int)ai, time, evaluated_poses);
 
                 for (size_t ji = 0; ji < model.joints.size(); ++ji) {
