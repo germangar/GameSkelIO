@@ -250,10 +250,11 @@ int main(int argc, char** argv) {
 
     printf("Model loaded: %u meshes, %u joints, %u animations (%zu keys)\n", 
            model->num_meshes, model->num_joints, model->num_animations, total_keys);
-    if (model->has_bounds) {
-        printf("Bounds: (%.3f %.3f %.3f) to (%.3f %.3f %.3f)\n", 
-               model->mins[0], model->mins[1], model->mins[2],
-               model->maxs[0], model->maxs[1], model->maxs[2]);
+
+    for (uint32_t i = 0; i < model->num_meshes; ++i) {
+        printf("  Mesh %u: \"%s\" Material: %s\n", i, 
+               model->meshes[i].name ? model->meshes[i].name : "unnamed",
+               model->meshes[i].material_name ? model->meshes[i].material_name : "none");
     }
 
     // Write Phase
@@ -263,6 +264,7 @@ int main(int argc, char** argv) {
     if (ends_with(unique_out, ".iqm")) {
         printf("Writing IQM: %s...\n", unique_out);
         if (!gsk_write_iqm(unique_out, model, force_single_anim)) ret_code = 3;
+        else printf("Success\n");
     } else if (ends_with(unique_out, ".fbx")) {
         bool write_base = true;
         bool write_anim = true;
@@ -276,9 +278,11 @@ int main(int argc, char** argv) {
         else printf("Writing FBX (Complete): %s...\n", unique_out);
 
         if (!gsk_write_fbx(unique_out, model, write_base, write_anim)) ret_code = 3;
+        else printf("Success\n");
     } else if (ends_with(unique_out, ".glb")) {
         printf("Writing GLB (cgltf): %s...\n", unique_out);
         if (!gsk_write_glb(unique_out, model)) ret_code = 3;
+        else printf("Success\n");
     } else {
         fprintf(stderr, "Unsupported output format: %s\n", unique_out);
         ret_code = 4;
