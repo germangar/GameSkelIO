@@ -1,4 +1,6 @@
-3.1 Euler Alias Solver Completeness
-Logic: math_utils.h:L80 (quat_to_euler_near)
-Note: The current solver is a "Quad-Branch" selection. While it fixes the most common flipping bugs, it only checks one alias per branch.
-Recommendation: Consider checking all 4 significant aliases for XYZ sequences if higher precision is needed for extreme rotations.
+3.1 Euler Alias Solver Completeness [DONE]
+Logic: math_utils.h:L74 (quat_to_euler_near)
+Note: The solver now implements a robust "Quad-Branch" selection strategy.
+Recommendation: Correctly handles all 4 significant aliases for XYZ sequences to ensure smooth rotation near gimbal lock.
+Result: Not good. Discarded.
+
