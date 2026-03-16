@@ -82,7 +82,7 @@ if (model) {
 
     // 3. Export to a memory-baked IQM buffer for the engine
     size_t iqm_size = 0;
-    bool force_single = true; // Merge all tracks for engine compatibility
+    bool force_single = true; // Merge all frames into a single animation?
 
     void* iqm_buffer = gsk_export_iqm_buffer(model, &iqm_size, force_single, NULL, NULL);
 
@@ -97,9 +97,7 @@ if (model) {
 }
 ```
 
-```
 
----
 
 ## The Converter Tool (`gskelconv`)
 
