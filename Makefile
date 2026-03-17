@@ -6,7 +6,7 @@ CFLAGS   = -O2 -Wall -Ilibs
 LDFLAGS  =
 
 TARGET = gskelconv.exe
-REBIND_TARGET = gs_rebind.exe
+REBIND_TARGET = gsrebind.exe
 LIB_TARGET = libgameskelio.a
 OBJDIR = obj
 
@@ -29,7 +29,7 @@ LIB_OBJS = $(addprefix $(OBJDIR)/, $(LIB_SRCS:.cpp=.o)) \
            $(addprefix $(OBJDIR)/, miniz.o)
 
 MAIN_OBJ = $(OBJDIR)/main.o
-REBIND_OBJ = $(OBJDIR)/gs_rebind.o
+REBIND_OBJ = $(OBJDIR)/gsrebind.o
 
 # Default target
 all: $(OBJDIR) $(LIB_TARGET) $(TARGET) $(REBIND_TARGET)
@@ -44,7 +44,7 @@ $(LIB_TARGET): $(LIB_OBJS)
 $(OBJDIR)/main.o: main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/gs_rebind.o: gs_rebind.cpp
+$(OBJDIR)/gsrebind.o: gsrebind.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Link with g++ because libgameskelio.a contains C++ code

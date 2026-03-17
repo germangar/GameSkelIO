@@ -40,7 +40,7 @@ The rebind tool uses a **Mathematical Cancellation** strategy to change rest pos
 
 ## 6. Component Responsibilities
 - **`gameskelio.h`**: The public C API. Main reference for data structures.
-- **`gs_rebind.cpp`**: Implementation of the rebinding CLI and host for the captured "original_bind" logic.
+- **`gsrebind.cpp`**: Implementation of the rebinding CLI and host for the captured "original_bind" logic.
 - **`gameskelio.cpp`**: C++/C bridge. Contains `gsk_rebase_pose`, the core animation retargeter.
 - **`model.h`**: Internal C++ "Source of Truth" representation.
 - **`math_utils.h`**: Critical math operations (Decomposition, Inversion, Slerp).

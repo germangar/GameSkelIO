@@ -18,7 +18,7 @@ echo Pose:      new_bind
 echo Output:    %OUTPUT%
 echo.
 
-"%~dp0gs_rebind.exe" "%INPUT%" "new_bind" "%OUTPUT%"
+"%~dp0gsrebind.exe" "%INPUT%" "new_bind" "%OUTPUT%"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

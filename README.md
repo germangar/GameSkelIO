@@ -118,9 +118,9 @@ gskelconv <input.iqm/glb/skm/fbx> <output.iqm/glb/fbx> [flags]
 ./gskelconv player.glb player.iqm --qfusion
 ```
 
-## The Rebinding Tool (`gs_rebind`)
+## The Rebinding Tool (`gsrebind`)
 
-`gs_rebind` is a specialized utility used to change a character's **Bind Pose** (Rest Pose) while ensuring all existing animations remain visually invariant. 
+`gsrebind` is a specialized utility used to change a character's **Bind Pose** (Rest Pose) while ensuring all existing animations remain visually invariant. 
 
 It is commonly used to:
 - Convert a "T-Pose" model to an "A-Pose" standard.
@@ -128,7 +128,7 @@ It is commonly used to:
 
 ### Usage
 ```bash
-gs_rebind <input.glb/iqm/fbx> <anim_idx_or_name> <output.glb/iqm>
+gsrebind <input.glb/iqm/fbx> <anim_idx_or_name> <output.glb/iqm>
 ```
 
 ### Requirements
@@ -137,7 +137,7 @@ gs_rebind <input.glb/iqm/fbx> <anim_idx_or_name> <output.glb/iqm>
 
 ### Example
 ```bash
-./gs_rebind player.glb "A-Pose" player_rebound.glb
+./gsrebind player.glb "A-Pose" player_rebound.glb
 ```
 
 ---
