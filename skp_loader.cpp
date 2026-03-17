@@ -185,6 +185,9 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
         std::memcpy(out.joints[i].rotate, r, 16);
         std::memcpy(out.joints[i].scale, s, 12);
     }
+    // Compute and store IBMs as the "source of truth" for the mesh
+    out.compute_bind_pose();
+    out.ibms = out.computed_ibms;
 
     dskmheader_t* skm_hdr = (dskmheader_t*)skm_buf;
     if (std::memcmp(skm_hdr->id, "SKM1", 4) != 0) return false;

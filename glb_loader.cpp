@@ -30,10 +30,6 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
     // For memory loading, we assume it's a self-contained GLB or the data already contains buffers.
     if (gdata->file_type == cgltf_file_type_glb) {
         result = cgltf_load_buffers(&options, gdata, nullptr);
-        if (result != cgltf_result_success) {
-            cgltf_free(gdata);
-            return false;
-        }
     }
 
     std::map<cgltf_node*, int> node_to_joint;
@@ -43,19 +39,31 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
         cgltf_node* node = &gdata->nodes[i];
         if (node->camera || node->light) continue; 
         
-        node_to_joint[node] = (int)out.joints.size();
+        int ji = (int)out.joints.size();
+        node_to_joint[node] = ji;
         Joint j;
         j.name = node->name ? node->name : "node_" + std::to_string(i);
         j.parent = -1;
         
-        if (node->has_translation) memcpy(j.translate, node->translation, 12);
-        else { j.translate[0] = j.translate[1] = j.translate[2] = 0.0f; }
+        if (node->has_matrix) {
+            mat4 m;
+            memcpy(m.m, node->matrix, 64);
+            mat4_decompose(m, j.translate, j.rotate, j.scale);
+        } else {
+            if (node->has_translation) memcpy(j.translate, node->translation, 12);
+            else { j.translate[0] = j.translate[1] = j.translate[2] = 0.0f; }
+            
+            if (node->has_rotation) memcpy(j.rotate, node->rotation, 16);
+            else { j.rotate[0] = j.rotate[1] = j.rotate[2] = 0.0f; j.rotate[3] = 1.0f; }
+            
+            if (node->has_scale) memcpy(j.scale, node->scale, 12);
+            else { j.scale[0] = j.scale[1] = j.scale[2] = 1.0f; }
+        }
         
-        if (node->has_rotation) memcpy(j.rotate, node->rotation, 16);
-        else { j.rotate[0] = j.rotate[1] = j.rotate[2] = 0.0f; j.rotate[3] = 1.0f; }
-        
-        if (node->has_scale) memcpy(j.scale, node->scale, 12);
-        else { j.scale[0] = j.scale[1] = j.scale[2] = 1.0f; }
+        // Diagnostic: log any non-identity scale
+        if (std::abs(j.scale[0]-1.0f) > 0.01f || std::abs(j.scale[1]-1.0f) > 0.01f || std::abs(j.scale[2]-1.0f) > 0.01f) {
+            printf("Joint '%s' has scale: %.3f, %.3f, %.3f\n", j.name.c_str(), j.scale[0], j.scale[1], j.scale[2]);
+        }
         
         out.joints.push_back(j);
     }
@@ -85,39 +93,85 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
 
             m.first_vertex = (uint32_t)out.positions.size() / 3;
             m.first_triangle = (uint32_t)out.indices.size() / 3;
+            uint32_t num_verts = 0;
+
+            // Find the skin associated with this mesh/node
+            cgltf_skin* skin = nullptr;
+            for (size_t n = 0; n < gdata->nodes_count; ++n) {
+                if (gdata->nodes[n].mesh == mesh && gdata->nodes[n].skin) {
+                    skin = gdata->nodes[n].skin;
+                    break;
+                }
+            }
+            if (!skin && gdata->skins_count > 0) skin = &gdata->skins[0];
+
+            // 2.1 Find vertex count first to ensure all buffers are grown equally
+            for (size_t k = 0; k < prim->attributes_count; ++k) {
+                if (prim->attributes[k].type == cgltf_attribute_type_position) {
+                    num_verts = (uint32_t)prim->attributes[k].data->count;
+                    break;
+                }
+            }
+            if (num_verts == 0) continue;
+
+            size_t v_start = out.positions.size() / 3;
+            out.positions.resize((v_start + num_verts) * 3, 0.0f);
+            out.normals.resize((v_start + num_verts) * 3, 0.0f);
+            out.texcoords.resize((v_start + num_verts) * 2, 0.0f);
+            out.joints_0.resize((v_start + num_verts) * 4, 0);
+            out.weights_0.resize((v_start + num_verts) * 4, 0.0f);
+
+            // 2.2 Pre-initialize weights/joints to handle unskinned primitives
+            int default_joint = 0;
+            for (size_t n = 0; n < gdata->nodes_count; ++n) {
+                if (gdata->nodes[n].mesh == mesh) {
+                    if (node_to_joint.count(&gdata->nodes[n])) default_joint = node_to_joint[&gdata->nodes[n]];
+                    break;
+                }
+            }
+            for (size_t v = 0; v < num_verts; ++v) {
+                out.joints_0[(v_start + v)*4 + 0] = (uint8_t)default_joint;
+                out.weights_0[(v_start + v)*4 + 0] = 1.0f;
+            }
 
             // Attributes
             for (size_t k = 0; k < prim->attributes_count; ++k) {
                 cgltf_attribute* attr = &prim->attributes[k];
                 if (attr->type == cgltf_attribute_type_position) {
-                    size_t start = out.positions.size();
-                    out.positions.resize(start + attr->data->count * 3);
-                    for (size_t v = 0; v < attr->data->count; ++v)
-                        cgltf_accessor_read_float(attr->data, v, &out.positions[start + v * 3], 3);
-                    m.num_vertexes = (uint32_t)attr->data->count;
+                    for (size_t v = 0; v < num_verts; ++v)
+                        cgltf_accessor_read_float(attr->data, v, &out.positions[(v_start + v) * 3], 3);
+                    m.num_vertexes = num_verts;
                 } else if (attr->type == cgltf_attribute_type_normal) {
-                    size_t start = out.normals.size();
-                    out.normals.resize(start + attr->data->count * 3);
-                    for (size_t v = 0; v < attr->data->count; ++v)
-                        cgltf_accessor_read_float(attr->data, v, &out.normals[start + v * 3], 3);
+                    for (size_t v = 0; v < num_verts; ++v)
+                        cgltf_accessor_read_float(attr->data, v, &out.normals[(v_start + v) * 3], 3);
                 } else if (attr->type == cgltf_attribute_type_texcoord) {
-                    size_t start = out.texcoords.size();
-                    out.texcoords.resize(start + attr->data->count * 2);
-                    for (size_t v = 0; v < attr->data->count; ++v)
-                        cgltf_accessor_read_float(attr->data, v, &out.texcoords[start + v * 2], 2);
+                    for (size_t v = 0; v < num_verts; ++v)
+                        cgltf_accessor_read_float(attr->data, v, &out.texcoords[(v_start + v) * 2], 2);
                 } else if (attr->type == cgltf_attribute_type_joints) {
-                    size_t start = out.joints_0.size();
-                    out.joints_0.resize(start + attr->data->count * 4);
-                    for (size_t v = 0; v < attr->data->count; ++v) {
+                    for (size_t v = 0; v < num_verts; ++v) {
                         uint32_t joints[4];
                         cgltf_accessor_read_uint(attr->data, v, joints, 4);
-                        for(int c=0; c<4; ++c) out.joints_0[start + v*4+c] = (uint8_t)joints[c];
+                        for(int c=0; c<4; ++c) {
+                            if (skin && joints[c] < skin->joints_count) {
+                                cgltf_node* jnode = skin->joints[joints[c]];
+                                out.joints_0[(v_start + v)*4+c] = (uint8_t)node_to_joint[jnode];
+                            } else {
+                                out.joints_0[(v_start + v)*4+c] = (uint8_t)joints[c];
+                            }
+                        }
                     }
                 } else if (attr->type == cgltf_attribute_type_weights) {
-                    size_t start = out.weights_0.size();
-                    out.weights_0.resize(start + attr->data->count * 4);
-                    for (size_t v = 0; v < attr->data->count; ++v)
-                        cgltf_accessor_read_float(attr->data, v, &out.weights_0[start + v * 4], 4);
+                    for (size_t v = 0; v < num_verts; ++v) {
+                        float w[4];
+                        cgltf_accessor_read_float(attr->data, v, w, 4);
+                        float total_w = w[0]+w[1]+w[2]+w[3];
+                        if (total_w > 1e-6f) {
+                            for(int c=0; c<4; ++c) out.weights_0[(v_start + v)*4 + c] = w[c]/total_w;
+                        } else {
+                            out.weights_0[(v_start + v)*4+0] = 1.0f;
+                            for(int c=1; c<4; ++c) out.weights_0[(v_start + v)*4 + c] = 0.0f;
+                        }
+                    }
                 }
             }
 
@@ -126,7 +180,7 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
                 size_t start = out.indices.size();
                 out.indices.resize(start + prim->indices->count);
                 for (size_t v = 0; v < prim->indices->count; ++v)
-                    out.indices[start + v] = (uint32_t)cgltf_accessor_read_index(prim->indices, v);
+                    out.indices[start + v] = (uint32_t)(v_start + cgltf_accessor_read_index(prim->indices, v));
                 m.num_triangles = (uint32_t)prim->indices->count / 3;
             }
 
@@ -134,7 +188,22 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
         }
     }
 
-    // 3. Animations
+    // 3. Load Skins (IBMs)
+    if (gdata->skins_count > 0) {
+        cgltf_skin* skin = &gdata->skins[0]; // Support first skin for now
+        if (skin->inverse_bind_matrices) {
+            out.ibms.assign(out.joints.size(), mat4_identity());
+            for (size_t i = 0; i < skin->joints_count; ++i) {
+                cgltf_node* joint_node = skin->joints[i];
+                if (node_to_joint.count(joint_node)) {
+                    int joint_idx = node_to_joint[joint_node];
+                    cgltf_accessor_read_float(skin->inverse_bind_matrices, i, out.ibms[joint_idx].m, 16);
+                }
+            }
+        }
+    }
+
+    // 4. Animations
     if (gdata->animations_count > 0 && !out.joints.empty()) {
         for (size_t i = 0; i < gdata->animations_count; ++i) {
             cgltf_animation* anim = &gdata->animations[i];

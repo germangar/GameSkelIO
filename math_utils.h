@@ -153,19 +153,23 @@ inline mat4 mat4_mul(const mat4& a, const mat4& b) {
 }
 
 // Build a mat4 from TRS (translate, rotate[xyzw], scale)
+// Safely handles NULL for t (defaults to 0) or s (defaults to 1)
 inline mat4 mat4_from_trs(const float* t, const float* r, const float* s) {
     mat4 m = mat4_identity();
-    float x = r[0], y = r[1], z = r[2], w = r[3];
-    m.m[0]  = (1 - 2*y*y - 2*z*z) * s[0];
-    m.m[1]  = (2*x*y + 2*z*w)      * s[0];
-    m.m[2]  = (2*x*z - 2*y*w)      * s[0];
-    m.m[4]  = (2*x*y - 2*z*w)      * s[1];
-    m.m[5]  = (1 - 2*x*x - 2*z*z)  * s[1];
-    m.m[6]  = (2*y*z + 2*x*w)      * s[1];
-    m.m[8]  = (2*x*z + 2*y*w)      * s[2];
-    m.m[9]  = (2*y*z - 2*x*w)      * s[2];
-    m.m[10] = (1 - 2*x*x - 2*y*y)  * s[2];
-    m.m[12] = t[0]; m.m[13] = t[1]; m.m[14] = t[2];
+    float tx = t ? t[0] : 0, ty = t ? t[1] : 0, tz = t ? t[2] : 0;
+    float sx = s ? s[0] : 1, sy = s ? s[1] : 1, sz = s ? s[2] : 1;
+    float x = 0, y = 0, z = 0, w = 1;
+    if (r) { x = r[0]; y = r[1]; z = r[2]; w = r[3]; }
+    m.m[0]  = (1 - 2*y*y - 2*z*z) * sx;
+    m.m[1]  = (2*x*y + 2*z*w)      * sx;
+    m.m[2]  = (2*x*z - 2*y*w)      * sx;
+    m.m[4]  = (2*x*y - 2*z*w)      * sy;
+    m.m[5]  = (1 - 2*x*x - 2*z*z)  * sy;
+    m.m[6]  = (2*y*z + 2*x*w)      * sy;
+    m.m[8]  = (2*x*z + 2*y*w)      * sz;
+    m.m[9]  = (2*y*z - 2*x*w)      * sz;
+    m.m[10] = (1 - 2*x*x - 2*y*y)  * sz;
+    m.m[12] = tx; m.m[13] = ty; m.m[14] = tz;
     return m;
 }
 
@@ -207,4 +211,73 @@ inline mat4 mat4_invert(const mat4& m) {
     inv.m[3] = inv.m[7] = inv.m[11] = 0.0f;
     inv.m[15] = 1.0f;
     return inv;
+}
+
+inline mat4 mat4_transpose(const mat4& m) {
+    mat4 r;
+    r.m[0] = m.m[0]; r.m[1] = m.m[4]; r.m[2] = m.m[8]; r.m[3] = m.m[12];
+    r.m[4] = m.m[1]; r.m[5] = m.m[5]; r.m[6] = m.m[9]; r.m[7] = m.m[13];
+    r.m[8] = m.m[2]; r.m[9] = m.m[6]; r.m[10] = m.m[10]; r.m[11] = m.m[14];
+    r.m[12] = m.m[3]; r.m[13] = m.m[7]; r.m[14] = m.m[11]; r.m[15] = m.m[15];
+    return r;
+}
+
+// Decompose a column-major matrix into TRS components.
+// Only works for valid TRS matrices (no skew/perspective).
+inline void mat4_decompose(const mat4& m, float* t, float* q, float* s) {
+    if (t) { t[0] = m.m[12]; t[1] = m.m[13]; t[2] = m.m[14]; }
+    
+    // Extract scale as column lengths
+    float sx = sqrtf(m.m[0]*m.m[0] + m.m[1]*m.m[1] + m.m[2]*m.m[2]);
+    float sy = sqrtf(m.m[4]*m.m[4] + m.m[5]*m.m[5] + m.m[6]*m.m[6]);
+    float sz = sqrtf(m.m[8]*m.m[8] + m.m[9]*m.m[9] + m.m[10]*m.m[10]);
+    
+    // Determine if the matrix has a reflection by checking the determinant of the rotation part
+    // Using a simplified determinant check on the unnormalized columns
+    float det = m.m[0]*(m.m[5]*m.m[10] - m.m[6]*m.m[9]) - m.m[4]*(m.m[1]*m.m[10] - m.m[2]*m.m[9]) + m.m[8]*(m.m[1]*m.m[6] - m.m[2]*m.m[5]);
+    if (det < 0) sx = -sx;
+
+    if (s) { s[0] = sx; s[1] = sy; s[2] = sz; }
+    
+    if (q) {
+        mat4 r = m;
+        if (std::abs(sx) > 1e-6f) { r.m[0] /= sx; r.m[1] /= sx; r.m[2] /= sx; }
+        if (std::abs(sy) > 1e-6f) { r.m[4] /= sy; r.m[5] /= sy; r.m[6] /= sy; }
+        if (std::abs(sz) > 1e-6f) { r.m[8] /= sz; r.m[9] /= sz; r.m[10] /= sz; }
+        
+        float tr = r.m[0] + r.m[5] + r.m[10];
+        if (tr > 0) {
+            float s_val = sqrtf(tr + 1.0f) * 2;
+            q[3] = 0.25f * s_val;
+            q[0] = (r.m[6] - r.m[9]) / s_val;
+            q[1] = (r.m[8] - r.m[2]) / s_val;
+            q[2] = (r.m[1] - r.m[4]) / s_val;
+        } else if ((r.m[0] > r.m[5]) && (r.m[0] > r.m[10])) {
+            float s_val = sqrtf(1.0f + r.m[0] - r.m[5] - r.m[10]) * 2;
+            q[3] = (r.m[6] - r.m[9]) / s_val;
+            q[0] = 0.25f * s_val;
+            q[1] = (r.m[4] + r.m[1]) / s_val;
+            q[2] = (r.m[2] + r.m[8]) / s_val;
+        } else if (r.m[5] > r.m[10]) {
+            float s_val = sqrtf(1.0f + r.m[5] - r.m[0] - r.m[10]) * 2;
+            q[3] = (r.m[8] - r.m[2]) / s_val;
+            q[0] = (r.m[4] + r.m[1]) / s_val;
+            q[1] = 0.25f * s_val;
+            q[2] = (r.m[9] + r.m[6]) / s_val;
+        } else {
+            float s_val = sqrtf(1.0f + r.m[10] - r.m[0] - r.m[5]) * 2;
+            q[3] = (r.m[1] - r.m[4]) / s_val;
+            q[0] = (r.m[2] + r.m[8]) / s_val;
+            q[1] = (r.m[9] + r.m[6]) / s_val;
+            q[2] = 0.25f * s_val;
+        }
+        quat_normalize(q);
+    }
+}
+
+inline void mat4_mul_vec3(const mat4& m, const float* v, float* r) {
+    float x = v[0], y = v[1], z = v[2];
+    r[0] = m.m[0]*x + m.m[4]*y + m.m[8]*z + m.m[12];
+    r[1] = m.m[1]*x + m.m[5]*y + m.m[9]*z + m.m[13];
+    r[2] = m.m[2]*x + m.m[6]*y + m.m[10]*z + m.m[14];
 }

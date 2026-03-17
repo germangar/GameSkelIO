@@ -6,6 +6,7 @@ CFLAGS   = -O2 -Wall -Ilibs
 LDFLAGS  =
 
 TARGET = gskelconv.exe
+REBIND_TARGET = gs_rebind.exe
 LIB_TARGET = libgameskelio.a
 OBJDIR = obj
 
@@ -28,9 +29,10 @@ LIB_OBJS = $(addprefix $(OBJDIR)/, $(LIB_SRCS:.cpp=.o)) \
            $(addprefix $(OBJDIR)/, miniz.o)
 
 MAIN_OBJ = $(OBJDIR)/main.o
+REBIND_OBJ = $(OBJDIR)/gs_rebind.o
 
 # Default target
-all: $(OBJDIR) $(LIB_TARGET) $(TARGET)
+all: $(OBJDIR) $(LIB_TARGET) $(TARGET) $(REBIND_TARGET)
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
@@ -42,8 +44,14 @@ $(LIB_TARGET): $(LIB_OBJS)
 $(OBJDIR)/main.o: main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(OBJDIR)/gs_rebind.o: gs_rebind.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
 # Link with g++ because libgameskelio.a contains C++ code
 $(TARGET): $(MAIN_OBJ) $(LIB_TARGET)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) -lstdc++
+
+$(REBIND_TARGET): $(REBIND_OBJ) $(LIB_TARGET)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) -lstdc++
 
 $(OBJDIR)/%.o: %.cpp
@@ -65,6 +73,6 @@ $(OBJDIR)/cgltf_write_impl.o: libs/cgltf_write_impl.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET) $(LIB_TARGET)
+	rm -rf $(OBJDIR) $(TARGET) $(REBIND_TARGET) $(LIB_TARGET)
 
 .PHONY: all clean

@@ -141,25 +141,30 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         out.meshes.push_back(out_mesh);
     }
 
-    // IBMs
-    out.ibms.resize(out.joints.size());
-    for (size_t ji = 0; ji < out.joints.size(); ++ji) {
-        ufbx_node* node = nullptr;
-        for (auto const& [n, idx] : node_to_joint) {
-            if (idx == (int)ji) { node = n; break; }
+    // IBMs: Prioritize skin cluster data (Geometry-to-Bone)
+    out.ibms.assign(out.joints.size(), mat4_identity());
+    if (scene->skin_deformers.count > 0) {
+        for (size_t i = 0; i < scene->skin_deformers.count; ++i) {
+            ufbx_skin_deformer* skin = scene->skin_deformers[i];
+            for (size_t c = 0; c < skin->clusters.count; ++c) {
+                ufbx_skin_cluster* cluster = skin->clusters[c];
+                if (cluster->bone_node && node_to_joint.count(cluster->bone_node)) {
+                    int ji = node_to_joint[cluster->bone_node];
+                    ufbx_matrix m = cluster->geometry_to_bone;
+                    mat4 mat;
+                    float* dest = (float*)&mat;
+                    dest[0] = (float)m.cols[0].x; dest[1] = (float)m.cols[0].y; dest[2] = (float)m.cols[0].z; dest[3] = 0;
+                    dest[4] = (float)m.cols[1].x; dest[5] = (float)m.cols[1].y; dest[6] = (float)m.cols[1].z; dest[7] = 0;
+                    dest[8] = (float)m.cols[2].x; dest[9] = (float)m.cols[2].y; dest[10] = (float)m.cols[2].z; dest[11] = 0;
+                    dest[12] = (float)m.cols[3].x; dest[13] = (float)m.cols[3].y; dest[14] = (float)m.cols[3].z; dest[15] = 1;
+                    out.ibms[ji] = mat;
+                }
+            }
         }
-        if (node) {
-            ufbx_matrix m = node->node_to_world;
-            mat4 mat;
-            float* dest = (float*)&mat;
-            dest[0] = (float)m.cols[0].x; dest[1] = (float)m.cols[0].y; dest[2] = (float)m.cols[0].z; dest[3] = 0;
-            dest[4] = (float)m.cols[1].x; dest[5] = (float)m.cols[1].y; dest[6] = (float)m.cols[1].z; dest[7] = 0;
-            dest[8] = (float)m.cols[2].x; dest[9] = (float)m.cols[2].y; dest[10] = (float)m.cols[2].z; dest[11] = 0;
-            dest[12] = (float)m.cols[3].x; dest[13] = (float)m.cols[3].y; dest[14] = (float)m.cols[3].z; dest[15] = 1;
-            out.ibms[ji] = mat4_invert(mat);
-        } else {
-            out.ibms[ji] = mat4_identity();
-        }
+    } else {
+        // Fallback: Compute from hierarchy if no skin exists
+        out.compute_bind_pose();
+        out.ibms = out.computed_ibms;
     }
 
     // Animations

@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <map>
+#include <set>
 
 static char* my_strdup(const std::string& s) {
     if (s.empty()) return nullptr;
@@ -458,4 +460,172 @@ extern "C" void gsk_reorder_skeleton(gs_model* model) {
     *model = *new_c;
     *new_c = temp;
     gsk_free_model(new_c);
+}
+extern "C" uint32_t gsk_get_version(void) {
+    return 1;
+}
+
+extern "C" bool gsk_move_animation(gs_model* model, uint32_t from_idx, uint32_t to_idx) {
+    if (!model || from_idx >= model->num_animations || to_idx >= model->num_animations) return false;
+    if (from_idx == to_idx) return true;
+
+    gs_animation temp = model->animations[from_idx];
+    if (from_idx < to_idx) {
+        memmove(&model->animations[from_idx], &model->animations[from_idx + 1], (to_idx - from_idx) * sizeof(gs_animation));
+    } else {
+        memmove(&model->animations[to_idx + 1], &model->animations[to_idx], (from_idx - to_idx) * sizeof(gs_animation));
+    }
+    model->animations[to_idx] = temp;
+    return true;
+}
+
+extern "C" bool gsk_rebase_pose(gs_model* model, uint32_t pose_anim_idx) {
+    if (!model || pose_anim_idx >= model->num_animations) return false;
+    
+    // Convert to C++ model for math
+    Model cpp = model_c_to_cpp(model);
+    
+    // 0. Compute ORIGINAL World Binds and IBMs
+    // Make sure we have a fresh set of matrices for the STARTing state
+    cpp.compute_bind_pose();
+    std::vector<mat4> old_world_binds = cpp.world_matrices;
+    std::vector<mat4> old_ibms = (cpp.ibms.size() == cpp.joints.size()) ? cpp.ibms : cpp.computed_ibms;
+    std::vector<mat4> old_locals(cpp.joints.size());
+    for(size_t i=0; i<cpp.joints.size(); ++i) {
+        old_locals[i] = mat4_from_trs(cpp.joints[i].translate, cpp.joints[i].rotate, cpp.joints[i].scale);
+    }
+
+    // 1. Compute NEW World Binds and IBMs
+    // To handle non-topological joint orders, we temporarily inject the target pose into the joints list
+    std::vector<Pose> target_poses;
+    cpp.evaluate_animation(pose_anim_idx, 0.0, target_poses);
+    
+    std::vector<Joint> saved_rest_pose = cpp.joints;
+    for(size_t i=0; i<cpp.joints.size(); ++i) {
+        memcpy(cpp.joints[i].translate, target_poses[i].translate, 12);
+        memcpy(cpp.joints[i].rotate, target_poses[i].rotate, 16);
+        memcpy(cpp.joints[i].scale, target_poses[i].scale, 12);
+    }
+    cpp.compute_bind_pose(); // Solid iterative pass
+    std::vector<mat4> new_world_binds = cpp.world_matrices;
+    std::vector<mat4> new_ibms = cpp.computed_ibms;
+    std::vector<mat4> new_locals(cpp.joints.size());
+    for(size_t i=0; i<cpp.joints.size(); ++i) {
+        new_locals[i] = mat4_from_trs(cpp.joints[i].translate, cpp.joints[i].rotate, cpp.joints[i].scale);
+    }
+    // Restore the joints list to the original rest pose for the retargeting bake
+    cpp.joints = saved_rest_pose;
+
+    // 2. Warp Mesh
+    // pos_new = sum(w * NewWorldBind * OldIBM * pos_old)
+    // norm_new = sum(w * (OldWorldBind * NewIBM)^T * norm_old)
+    for (size_t i = 0; i < cpp.positions.size() / 3; ++i) {
+        float pos[3] = { cpp.positions[i*3], cpp.positions[i*3+1], cpp.positions[i*3+2] };
+        float norm[3] = { cpp.normals[i*3], cpp.normals[i*3+1], cpp.normals[i*3+2] };
+        float res_pos[3] = {0,0,0}, res_norm[3] = {0,0,0};
+        
+        for (int k = 0; k < 4; ++k) {
+            float w = cpp.weights_0[i*4+k];
+            if (w <= 0) continue;
+            int ji = cpp.joints_0[i*4+k];
+            
+            mat4 warp = mat4_mul(new_world_binds[ji], old_ibms[ji]);
+            mat4 nwarp = mat4_transpose(mat4_mul(old_world_binds[ji], new_ibms[ji]));
+            
+            float p[3], n[3];
+            mat4_mul_vec3(warp, pos, p);
+            mat4_mul_vec3(nwarp, norm, n);
+            for(int c=0; c<3; ++c) {
+                res_pos[c] += p[c] * w;
+                res_norm[c] += n[c] * w;
+            }
+        }
+        memcpy(&cpp.positions[i*3], res_pos, 12);
+        float len = sqrtf(res_norm[0]*res_norm[0] + res_norm[1]*res_norm[1] + res_norm[2]*res_norm[2]);
+        if (len > 1e-6f) {
+            for(int c=0; c<3; ++c) cpp.normals[i*3+c] = res_norm[c] / len;
+        }
+    }
+
+    // 3. Retarget Animations
+    int processed_anims = 0;
+    for (size_t a = 0; a < cpp.animations.size(); ++a) {
+        // Skip retargeting for the new bind itself, or the special "original_bind" animation
+        if (a == (size_t)pose_anim_idx || cpp.animations[a].name == "original_bind") continue;
+
+        printf("  Processing Animation: %s...\n", cpp.animations[a].name.c_str());
+        processed_anims++;
+
+        // Collect ALL unique timestamps across ALL bones to create a uniform timeline for this animation
+        std::set<double> timestamps;
+        for(const auto& b : cpp.animations[a].bones) {
+            for(double t : b.translation.times) timestamps.insert(t);
+            for(double t : b.rotation.times) timestamps.insert(t);
+            for(double t : b.scale.times) timestamps.insert(t);
+        }
+        if (timestamps.empty()) timestamps.insert(0.0);
+
+        std::vector<double> timeline(timestamps.begin(), timestamps.end());
+
+        // Cache the evaluation of the OLD animation before we clear the tracks
+        std::map<double, std::vector<Pose>> old_local_bake;
+        for (double t : timeline) {
+            std::vector<Pose> old_local_poses;
+            cpp.evaluate_animation(a, t, old_local_poses);
+            old_local_bake[t] = old_local_poses;
+        }
+
+        // Now we can safely overwrite the tracks
+        for (size_t i = 0; i < cpp.joints.size(); ++i) {
+            BoneAnim& ba = cpp.animations[a].bones[i];
+
+            ba.translation.times = timeline;
+            ba.rotation.times = timeline;
+            ba.scale.times = timeline;
+            ba.translation.values.assign(timeline.size() * 3, 0.0f);
+            ba.rotation.values.assign(timeline.size() * 4, 0.0f);
+            ba.scale.values.assign(timeline.size() * 3, 0.0f);
+
+            for (size_t k = 0; k < timeline.size(); ++k) {
+                double t = timeline[k];
+                
+                // Get old local pose from cache
+                const Pose& old_pose = old_local_bake[t][i];
+                
+                // We use the original local animation values. 
+                // Since the mesh was warped and IBMs updated, using the original 
+                // local TRS guarantees perfect world-space deformation invariance.
+                memcpy(&ba.translation.values[k * 3], old_pose.translate, 12);
+                memcpy(&ba.scale.values[k * 3], old_pose.scale, 12);
+                
+                float ro[4] = {old_pose.rotate[0], old_pose.rotate[1], old_pose.rotate[2], old_pose.rotate[3]};
+                
+                // Shortest path correction relative to previous key to prevent twisting
+                if (k > 0) {
+                    float* prev_q = &ba.rotation.values[(k - 1) * 4];
+                    float dot = ro[0]*prev_q[0] + ro[1]*prev_q[1] + ro[2]*prev_q[2] + ro[3]*prev_q[3];
+                    if (dot < 0) { ro[0]=-ro[0]; ro[1]=-ro[1]; ro[2]=-ro[2]; ro[3]=-ro[3]; }
+                }
+                memcpy(&ba.rotation.values[k * 4], ro, 16);
+            }
+        }
+    }
+
+    // 4. Finally update Model Rest Pose and IBMs
+    for (size_t i = 0; i < cpp.joints.size(); ++i) {
+        memcpy(cpp.joints[i].translate, target_poses[i].translate, 12);
+        memcpy(cpp.joints[i].rotate, target_poses[i].rotate, 16);
+        memcpy(cpp.joints[i].scale, target_poses[i].scale, 12);
+    }
+    cpp.ibms = new_ibms;
+
+    // Sync back to C
+    gs_model* new_c = model_cpp_to_c(cpp);
+    gs_model temp = *model;
+    *model = *new_c;
+    *new_c = temp;
+    gsk_free_model(new_c);
+
+    printf("Rebase finished. Processed %d animations.\n", processed_anims);
+    return true;
 }

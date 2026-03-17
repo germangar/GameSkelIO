@@ -76,6 +76,9 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
             memcpy(out.joints[i].rotate, r, 16);
             memcpy(out.joints[i].scale, iqm_joints[i].scale, 12);
         }
+        // Compute and store IBMs as the "source of truth" for the mesh
+        out.compute_bind_pose();
+        out.ibms = out.computed_ibms;
     }
 
     // Meshes

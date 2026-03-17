@@ -13,6 +13,8 @@
 #ifndef GAMESKELIO_H
 #define GAMESKELIO_H
 
+#define GAMESKELIO_VERSION 1
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -171,6 +173,9 @@ void gsk_free_buffer(void* buffer);
 void gsk_free_iqm_metadata(gs_legacy_framegroup* anims, uint32_t count);
 
 // Operations: Manipulation and analysis helpers.
+uint32_t gsk_get_version(void);
+bool gsk_rebase_pose(gs_model* model, uint32_t pose_anim_idx);
+bool gsk_move_animation(gs_model* model, uint32_t from_idx, uint32_t to_idx);
 void gsk_compute_bind_pose(gs_model* model);
 void gsk_compute_bounds(gs_model* model);
 bool gsk_validate_skeleton(gs_model* model);
