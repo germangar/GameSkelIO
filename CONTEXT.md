@@ -3,7 +3,7 @@
 This document is technical context for AI agents to understand the architecture, data flow, and conventions of the GameSkelIO project.
 
 ## 1. Project Overview
-- **Type**: C Library (`libgameskelio.a`) with a pure C CLI tool (`main.c`).
+- **Type**: C Library (`libgameskelio.a`) with a pure C CLI tool (`tools/main.c`).
 - **Purpose**: High-performance 3D skeletal model and animation transcoding.
 - **Architecture**: **Memory-First**. Loaders and writers operate primarily on buffers (`void* data, size_t size`) to support Virtual File Systems (VFS) and minimize I/O overhead.
 
@@ -40,7 +40,8 @@ The rebind tool uses a **Mathematical Cancellation** strategy to change rest pos
 
 ## 6. Component Responsibilities
 - **`gameskelio.h`**: The public C API. Main reference for data structures.
-- **`gsrebind.cpp`**: Implementation of the rebinding CLI and host for the captured "original_bind" logic.
+- **`gsrebind.cpp`**: Implementation of the rebinding CLI in `tools/gsrebind.cpp`.
+- **`main.c`**: Reference implementation in `tools/main.c` showing how to use the library as a transcoder.
 - **`gameskelio.cpp`**: C++/C bridge. Contains `gsk_rebase_pose`, the core animation retargeter.
 - **`model.h`**: Internal C++ "Source of Truth" representation.
 - **`math_utils.h`**: Critical math operations (Decomposition, Inversion, Slerp).

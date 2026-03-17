@@ -1,8 +1,8 @@
 CXX      = g++
 CC       = gcc
 AR       = ar
-CXXFLAGS = -O2 -Wall -std=c++17 -Ilibs
-CFLAGS   = -O2 -Wall -Ilibs
+CXXFLAGS = -O2 -Wall -std=c++17 -Ilibs -I.
+CFLAGS   = -O2 -Wall -Ilibs -I.
 LDFLAGS  =
 
 TARGET = gskelconv.exe
@@ -41,10 +41,10 @@ $(LIB_TARGET): $(LIB_OBJS)
 	$(AR) rcs $@ $^
 
 # main.o needs to be compiled from main.c
-$(OBJDIR)/main.o: main.c
+$(OBJDIR)/main.o: tools/main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/gsrebind.o: gsrebind.cpp
+$(OBJDIR)/gsrebind.o: tools/gsrebind.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Link with g++ because libgameskelio.a contains C++ code
