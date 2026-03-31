@@ -32,10 +32,6 @@ std::string find_animation_cfg(const std::string& iqm_path) {
 std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
     std::vector<AnimConfigEntry> entries;
 
-    // Always prepend hardcoded Warfork/Warsow leading animations
-    entries.push_back({"base", 0, 0, 0, BASE_FPS});
-    entries.push_back({"STAND_IDLE", 1, 39, 0, BASE_FPS});
-
     std::ifstream f(path);
     if (!f.is_open()) return entries;
 
@@ -71,12 +67,14 @@ std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
         size_t comment_pos = line.find("//");
         if (comment_pos != std::string::npos) {
             std::string comment = line.substr(comment_pos + 2);
-            comment.erase(0, comment.find_first_not_of(" \t"));
-            // Take the first word only
-            size_t space_pos = comment.find_first_of(" \t\r\n");
-            ace.name = (space_pos != std::string::npos)
-                    ? comment.substr(0, space_pos)
-                    : comment;
+            // Trim leading and trailing whitespace
+            size_t start = comment.find_first_not_of(" \t\r\n");
+            if (start != std::string::npos) {
+                size_t end = comment.find_last_not_of(" \t\r\n");
+                ace.name = comment.substr(start, end - start + 1);
+            } else {
+                ace.name = "unnamed_" + std::to_string(entries.size());
+            }
         } else {
             ace.name = "unnamed_" + std::to_string(entries.size());
         }

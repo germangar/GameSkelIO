@@ -19,13 +19,14 @@ bool load_iqm(const char* path, Model& out) {
     // Check for animation.cfg alongside the file
     std::string cfg_path = find_animation_cfg(path);
     std::vector<gs_legacy_framegroup> overrides;
+    std::vector<AnimConfigEntry> entries;
     
     if (!cfg_path.empty()) {
         std::cout << "Found animation config: " << cfg_path << std::endl;
-        std::vector<AnimConfigEntry> entries = parse_animation_cfg(cfg_path);
+        entries = parse_animation_cfg(cfg_path);
         for (const auto& entry : entries) {
             gs_legacy_framegroup fg;
-            fg.name = entry.name.c_str(); // Warning: temporary strings if AnimConfigEntry is destroyed
+            fg.name = entry.name.c_str(); 
             fg.first_frame = entry.first_frame;
             fg.num_frames = entry.last_frame - entry.first_frame + 1;
             fg.fps = entry.fps;

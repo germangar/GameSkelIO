@@ -80,6 +80,12 @@ static void rotate_vec(const mat4& m, const float* in, float* out) {
     out[2] += (m.m[2] * in[0] + m.m[6] * in[1] + m.m[10] * in[2]);       
 }
 
+static std::string read_fixed_string(const char* s, size_t max_len) {
+    size_t len = 0;
+    while (len < max_len && s[len] != '\0') len++;
+    return std::string(s, len);
+}
+
 bool load_skm(const char* path, Model& out) {
     std::string base_path = path;
     size_t dot = base_path.find_last_of('.');
@@ -111,10 +117,11 @@ bool load_skm(const char* path, Model& out) {
     // Check for animation.cfg alongside the file
     std::string cfg_path = find_animation_cfg(skm_path);
     std::vector<gs_legacy_framegroup> overrides;
+    std::vector<AnimConfigEntry> entries;
     
     if (!cfg_path.empty()) {
         std::cout << "Found animation config: " << cfg_path << std::endl;
-        std::vector<AnimConfigEntry> entries = parse_animation_cfg(cfg_path);
+        entries = parse_animation_cfg(cfg_path);
         for (const auto& entry : entries) {
             gs_legacy_framegroup fg;
             fg.name = entry.name.c_str(); 
@@ -145,7 +152,7 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
     out.joints.resize(num_bones);
     dskpbone_t* skp_bones = (dskpbone_t*)(skp_buf + skp_hdr->ofs_bones);
     for (uint32_t i = 0; i < num_bones; ++i) {
-        out.joints[i].name = skp_bones[i].name;
+        out.joints[i].name = read_fixed_string(skp_bones[i].name, SKM_MAX_NAME);
         out.joints[i].parent = skp_bones[i].parent;
     }
 
@@ -197,8 +204,8 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
 
     for (uint32_t m = 0; m < skm_hdr->num_meshes; ++m) {
         Mesh& mesh = out.meshes[m];
-        mesh.name = skm_meshes[m].meshname;
-        mesh.material_name = skm_meshes[m].shadername;
+        mesh.name = read_fixed_string(skm_meshes[m].meshname, SKM_MAX_NAME);
+        mesh.material_name = read_fixed_string(skm_meshes[m].shadername, SKM_MAX_NAME);
         mesh.first_vertex = out.positions.size() / 3;
         mesh.num_vertexes = skm_meshes[m].num_verts;
         mesh.first_triangle = out.indices.size() / 3;

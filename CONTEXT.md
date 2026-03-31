@@ -54,3 +54,12 @@ The rebind tool uses a **Mathematical Cancellation** strategy to change rest pos
 ## 8. Build Workflow
 - **`make clean; make all`**: Mandatory after structural math changes to prevent stale binary state ("Paranoid Mode").
 - **Linkage**: Use `g++` to resolve C++ dependencies in the static library.
+
+## 9. Project History & Known Regressions
+- **GOLDEN Revision**: `7e2a6ff26a01a5ff8e49f1695a520e5ee52cb234` is verified as FREE of FBX "arm" bugs and has correct animation data.
+- **Bug Tracking**:
+    - `7e2a6ff`: **GOLDEN** (No bugs).
+    - `c863d81`: **GOOD** (No bugs).
+    - `db7eb2c`: Introduced **ROOT ROTATED** bug.
+    - `99c2ad3`, `daa306f`, `f763f2e`: Still **ROOT ROTATED**, no Arm bug.
+    - `32126a0`: Introduced **ARM BUG** (approx. frame 114), fixed Root Rotated bug.
