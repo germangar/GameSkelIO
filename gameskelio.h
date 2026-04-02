@@ -13,7 +13,7 @@
 #ifndef GAMESKELIO_H
 #define GAMESKELIO_H
 
-#define GAMESKELIO_VERSION 1
+#define GAMESKELIO_VERSION 2
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -97,6 +97,7 @@ typedef struct gs_legacy_framegroup {
  */
 typedef struct gs_animation {
     char* name;
+    double duration;
     uint32_t num_bones;
     gs_bone_anim* bones;
 } gs_animation;

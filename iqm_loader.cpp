@@ -220,6 +220,7 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
         for (const auto& a : anims) {
             AnimationDef ad;
             ad.name = a.name;
+            ad.duration = (a.count > 0) ? (double)(a.count - 1) / a.fps : 0.0;
             ad.bones.resize(out.joints.size());
             for (int f = a.first; f < a.first + a.count; ++f) {
                 if (f < 0 || f >= (int)hdr->num_frames) continue;

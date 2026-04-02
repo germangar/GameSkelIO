@@ -63,19 +63,37 @@ std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
         ace.loop_frames = (fields >= 3) ? loop : 0;
         ace.fps         = (fields >= 4) ? fps : BASE_FPS;
 
-        // Extract name from trailing // comment
+        // Extract name: prefer trailing // comment, otherwise try 5th field
+        std::string name;
         size_t comment_pos = line.find("//");
         if (comment_pos != std::string::npos) {
-            std::string comment = line.substr(comment_pos + 2);
-            // Trim leading and trailing whitespace
-            size_t start = comment.find_first_not_of(" \t\r\n");
-            if (start != std::string::npos) {
-                size_t end = comment.find_last_not_of(" \t\r\n");
-                ace.name = comment.substr(start, end - start + 1);
-            } else {
-                ace.name = "unnamed_" + std::to_string(entries.size());
-            }
+            name = line.substr(comment_pos + 2);
         } else {
+            // Find where the numbers end to see if there's a name after them
+            const char* p = line.c_str();
+            int matched = 0;
+            while (*p && matched < fields) {
+                while (*p && std::isspace((unsigned char)*p)) p++;
+                if (!*p) break;
+                // Move past the number
+                while (*p && !std::isspace((unsigned char)*p)) p++;
+                matched++;
+            }
+            while (*p && std::isspace((unsigned char)*p)) p++;
+            if (*p) name = p;
+        }
+
+        // Clean and trim the name
+        if (!name.empty()) {
+            size_t start = name.find_first_not_of(" \t\r\n");
+            if (start != std::string::npos) {
+                size_t end = name.find_last_not_of(" \t\r\n");
+                ace.name = name.substr(start, end - start + 1);
+            }
+        }
+
+        // Fallback if still empty
+        if (ace.name.empty()) {
             ace.name = "unnamed_" + std::to_string(entries.size());
         }
 

@@ -207,16 +207,17 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
     if (gdata->animations_count > 0 && !out.joints.empty()) {
         for (size_t i = 0; i < gdata->animations_count; ++i) {
             cgltf_animation* anim = &gdata->animations[i];
-            
+
             AnimationDef ad;
             ad.name = anim->name ? anim->name : "anim_" + std::to_string(i);
+            ad.duration = 0.0;
             std::replace(ad.name.begin(), ad.name.end(), ' ', '_');
             ad.bones.resize(out.joints.size());
 
             for (size_t j = 0; j < anim->channels_count; ++j) {
                 cgltf_animation_channel* chan = &anim->channels[j];
                 if (!chan->target_node) continue;
-                
+
                 int ji = node_to_joint[chan->target_node];
                 BoneAnim& ba = ad.bones[ji];
                 AnimChannel* target = nullptr;
@@ -228,14 +229,16 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
                 if (target && chan->sampler->input && chan->sampler->output) {
                     cgltf_accessor* times = chan->sampler->input;
                     cgltf_accessor* values = chan->sampler->output;
-                    
+
                     target->times.resize(times->count);
                     for (size_t k = 0; k < times->count; ++k) {
                         float t;
                         cgltf_accessor_read_float(times, k, &t, 1);
                         target->times[k] = (double)t;
                     }
-
+                    if (!target->times.empty()) {
+                        ad.duration = std::max(ad.duration, target->times.back());
+                    }
                     int components = (chan->target_path == cgltf_animation_path_type_rotation) ? 4 : 3;
                     target->values.resize(values->count * components);
                     for (size_t k = 0; k < values->count; ++k) {

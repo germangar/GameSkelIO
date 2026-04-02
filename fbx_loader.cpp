@@ -176,6 +176,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
 
         AnimationDef ad;
         ad.name = stack->name.data;
+        ad.duration = 0.0;
         ad.bones.resize(out.joints.size());
 
         for (size_t ji = 0; ji < out.joints.size(); ++ji) {
@@ -197,6 +198,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
 
             for (int fi = 0; fi < num_frames; ++fi) {
                 double key_time = (double)fi / (double)BASE_FPS;
+                ad.duration = std::max(ad.duration, key_time);
                 ufbx_transform tr = ufbx_evaluate_transform(stack->anim, node, key_time);
                 float t[3] = {(float)tr.translation.x, (float)tr.translation.y, (float)tr.translation.z};
                 float q[4] = {(float)tr.rotation.x, (float)tr.rotation.y, (float)tr.rotation.z, (float)tr.rotation.w};

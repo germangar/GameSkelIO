@@ -78,6 +78,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         c->animations = (gs_animation*)calloc(c->num_animations, sizeof(gs_animation));
         for (size_t i = 0; i < c->num_animations; ++i) {
             c->animations[i].name = my_strdup(cpp.animations[i].name);
+            c->animations[i].duration = cpp.animations[i].duration;
             c->animations[i].num_bones = cpp.animations[i].bones.size();
             if (c->animations[i].num_bones > 0) {
                 c->animations[i].bones = (gs_bone_anim*)calloc(c->animations[i].num_bones, sizeof(gs_bone_anim));

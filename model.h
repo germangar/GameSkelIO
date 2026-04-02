@@ -35,6 +35,7 @@ struct BoneAnim {
 
 struct AnimationDef {
     std::string name;
+    double duration;
     std::vector<BoneAnim> bones; // One per joint in the model
 };
 
