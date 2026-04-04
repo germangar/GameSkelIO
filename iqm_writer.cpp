@@ -54,9 +54,10 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
     std::vector<char> text;
     text.push_back('\0'); 
 
-    // 1. Prepare Joints (Convert Y-up to Z-up)
+    // 1. Prepare Joints (Convert glTF space to IQM space)
+    // Mapping: OldX = NewZ, OldY = NewX, OldZ = NewY -> (z, x, y)
     std::vector<iqmjoint> iqm_joints(model.joints.size());
-    float q_rot_inv[4] = {0.7071068f, 0.0f, 0.0f, 0.7071068f}; // +90X
+    float q_rot_inv[4] = {0.5f, 0.5f, 0.5f, 0.5f}; // 120deg inverse rotation
     
     for (size_t i = 0; i < model.joints.size(); ++i) {
         iqm_joints[i].name = write_text(text, model.joints[i].name);
@@ -67,7 +68,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
         quat_normalize(r);
         
         if (model.joints[i].parent == -1) {
-            float t_zup[3] = {t[0], -t[2], t[1]};
+            float t_zup[3] = {t[2], t[0], t[1]};
             memcpy(t, t_zup, 12);
             float r_new[4];
             quat_mul(q_rot_inv, r, r_new);
@@ -190,7 +191,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
 
                     if (model.joints[ji].parent == -1) {
                         float tx = vals[0], ty = vals[1], tz = vals[2];
-                        vals[0] = tx; vals[1] = -tz; vals[2] = ty;
+                        vals[0] = tz; vals[1] = tx; vals[2] = ty;
                         float r_val[4] = {vals[3], vals[4], vals[5], vals[6]};
                         float r_new[4];
                         quat_mul(q_rot_inv, r_val, r_new);
@@ -266,14 +267,14 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
 
     std::vector<float> zup_positions(model.positions.size());
     for(size_t i=0; i<model.positions.size()/3; ++i) {
-        zup_positions[i*3+0] = model.positions[i*3+0];
-        zup_positions[i*3+1] = -model.positions[i*3+2];
+        zup_positions[i*3+0] = model.positions[i*3+2];
+        zup_positions[i*3+1] = model.positions[i*3+0];
         zup_positions[i*3+2] = model.positions[i*3+1];
     }
     std::vector<float> zup_normals(model.normals.size());
     for(size_t i=0; i<model.normals.size()/3; ++i) {
-        zup_normals[i*3+0] = model.normals[i*3+0];
-        zup_normals[i*3+1] = -model.normals[i*3+2];
+        zup_normals[i*3+0] = model.normals[i*3+2];
+        zup_normals[i*3+1] = model.normals[i*3+0];
         zup_normals[i*3+2] = model.normals[i*3+1];
     }
 
@@ -315,8 +316,8 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
         uint32_t nb = std::max(1u, total_iqm_frames);
         std::vector<iqmbounds> b(nb);
         for(auto& bi : b) {
-            bi.bbmin[0] = model.mins[0]; bi.bbmin[1] = -model.maxs[2]; bi.bbmin[2] = model.mins[1];
-            bi.bbmax[0] = model.maxs[0]; bi.bbmax[1] = -model.mins[2]; bi.bbmax[2] = model.maxs[1];
+            bi.bbmin[0] = model.mins[2]; bi.bbmin[1] = model.mins[0]; bi.bbmin[2] = model.mins[1];
+            bi.bbmax[0] = model.maxs[2]; bi.bbmax[1] = model.maxs[0]; bi.bbmax[2] = model.maxs[1];
             bi.xyradius = model.xyradius; bi.radius = model.radius;
         }
         hdr.ofs_bounds = append_data(b.data(), b.size() * sizeof(iqmbounds));

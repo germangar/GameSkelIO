@@ -61,12 +61,12 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
             float r[4]; memcpy(r, iqm_joints[i].rotate, 16);
 
             if (out.joints[i].parent == -1) {
-                // Root Translation: (x, y, z) -> (x, z, -y)
-                float t_yup[3] = {t[0], t[2], -t[1]};
+                // Root Translation: (x, y, z) -> (y, z, x)
+                float t_yup[3] = {t[1], t[2], t[0]};
                 memcpy(t, t_yup, 12);
 
-                // Root Rotation: pre-multiply by -90X
-                float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
+                // Root Rotation: 120deg rotation around (1,1,1) to map X->Z, Y->X, Z->Y
+                float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};
                 float r_new[4];
                 quat_mul(q_rot, r, r_new);
                 quat_normalize(r_new);
@@ -105,17 +105,17 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
             out.positions.resize(hdr->num_vertexes * 3);
             const float* p_src = (const float*)src;
             for (uint32_t v = 0; v < hdr->num_vertexes; ++v) {
-                out.positions[v*3+0] = p_src[v*3+0];
+                out.positions[v*3+0] = p_src[v*3+1];
                 out.positions[v*3+1] = p_src[v*3+2];
-                out.positions[v*3+2] = -p_src[v*3+1];
+                out.positions[v*3+2] = p_src[v*3+0];
             }
         } else if (va[i].type == IQM_NORMAL && va[i].format == IQM_FLOAT && va[i].size == 3) {
             out.normals.resize(hdr->num_vertexes * 3);
             const float* n_src = (const float*)src;
             for (uint32_t v = 0; v < hdr->num_vertexes; ++v) {
-                out.normals[v*3+0] = n_src[v*3+0];
+                out.normals[v*3+0] = n_src[v*3+1];
                 out.normals[v*3+1] = n_src[v*3+2];
-                out.normals[v*3+2] = -n_src[v*3+1];
+                out.normals[v*3+2] = n_src[v*3+0];
             }
         } else if (va[i].type == IQM_TEXCOORD && va[i].format == IQM_FLOAT && va[i].size == 2) {
             out.texcoords.resize(hdr->num_vertexes * 2);
@@ -172,9 +172,9 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
 
                 if (out.joints[p].parent == -1) {
                     float tx = vals[0], ty = vals[1], tz = vals[2];
-                    vals[0] = tx; vals[1] = tz; vals[2] = -ty;
+                    vals[0] = ty; vals[1] = tz; vals[2] = tx;
                     float r[4] = {vals[3], vals[4], vals[5], vals[6]};
-                    float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
+                    float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};
                     float r_new[4];
                     quat_mul(q_rot, r, r_new);
                     quat_normalize(r_new);

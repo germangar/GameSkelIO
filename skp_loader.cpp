@@ -180,9 +180,9 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
         float s[3] = {1, 1, 1};
 
         if (out.joints[i].parent == -1) {
-            float t_yup[3] = {t[0], t[2], -t[1]};
+            float t_yup[3] = {t[1], t[2], t[0]};
             std::memcpy(t, t_yup, 12);
-            float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};      
+            float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};      
             float r_new[4];
             quat_mul(q_rot, r, r_new);
             quat_normalize(r_new);
@@ -250,18 +250,18 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
                 out.weights_0[(mesh.first_vertex + v) * 4 + i] = (total_weight > 0) ? (sorted_influences[i].weight / total_weight) : 0;
             }
 
-            out.positions[(mesh.first_vertex + v) * 3 + 0] = zup_pos[0]; 
+            out.positions[(mesh.first_vertex + v) * 3 + 0] = zup_pos[1]; 
             out.positions[(mesh.first_vertex + v) * 3 + 1] = zup_pos[2]; 
-            out.positions[(mesh.first_vertex + v) * 3 + 2] = -zup_pos[1];
+            out.positions[(mesh.first_vertex + v) * 3 + 2] = zup_pos[0];
 
             float norm_len = std::sqrt(zup_norm[0]*zup_norm[0] + zup_norm[1]*zup_norm[1] + zup_norm[2]*zup_norm[2]);
             if (norm_len > 1e-6f) {
                 float inv_len = 1.0f / norm_len;
                 zup_norm[0] *= inv_len; zup_norm[1] *= inv_len; zup_norm[2] *= inv_len;
             }
-            out.normals[(mesh.first_vertex + v) * 3 + 0] = zup_norm[0];  
+            out.normals[(mesh.first_vertex + v) * 3 + 0] = zup_norm[1];  
             out.normals[(mesh.first_vertex + v) * 3 + 1] = zup_norm[2];  
-            out.normals[(mesh.first_vertex + v) * 3 + 2] = -zup_norm[1]; 
+            out.normals[(mesh.first_vertex + v) * 3 + 2] = zup_norm[0]; 
         }
 
         dskmcoord_t* st = (dskmcoord_t*)(skm_buf + skm_meshes[m].ofs_texcoords);
@@ -316,8 +316,8 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
 
                     if (out.joints[p].parent == -1) {
                         float tx = t[0], ty = t[1], tz = t[2];
-                        t[0] = tx; t[1] = tz; t[2] = -ty;
-                        float q_rot[4] = {-0.7071068f, 0.0f, 0.0f, 0.7071068f};
+                        t[0] = ty; t[1] = tz; t[2] = tx;
+                        float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};
                         float r_new[4];
                         quat_mul(q_rot, r, r_new);
                         quat_normalize(r_new);
