@@ -34,7 +34,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         return false;
     }
 
-    // Phase 1.5 - Extract Skeleton (Full Hierarchy)
+    // Phase 1 - Extract Skeleton (Full Hierarchy)
     std::map<ufbx_node*, int> node_to_joint;
     for (size_t i = 0; i < scene->nodes.count; ++i) {
         ufbx_node* node = scene->nodes[i];
@@ -44,13 +44,13 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         
         float t[3] = { (float)node->local_transform.translation.x, (float)node->local_transform.translation.y, (float)node->local_transform.translation.z };
         float r[4] = { (float)node->local_transform.rotation.x, (float)node->local_transform.rotation.y, (float)node->local_transform.rotation.z, (float)node->local_transform.rotation.w };
+        float s[3] = { (float)node->local_transform.scale.x, (float)node->local_transform.scale.y, (float)node->local_transform.scale.z };
         
+        stabilize_trs(t, r, s);
+
         memcpy(j.translate, t, 12);
         memcpy(j.rotate, r, 16);
-        
-        j.scale[0] = (float)node->local_transform.scale.x;
-        j.scale[1] = (float)node->local_transform.scale.y;
-        j.scale[2] = (float)node->local_transform.scale.z;
+        memcpy(j.scale, s, 12);
         
         node_to_joint[node] = (int)out.joints.size();
         out.joints.push_back(j);
@@ -67,10 +67,22 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         }
     }
 
-    // Phase 2 & 3 - Extract Meshes, Materials, and Skinning
+    // Pre-calculate bind pose world matrices for mesh baking
+    out.compute_bind_pose();
+
+    // Phase 2 - Extract Meshes, Materials, and Skinning
     for (size_t i = 0; i < scene->meshes.count; ++i) {
         ufbx_mesh* fmesh = scene->meshes[i];
         if (fmesh->num_indices == 0) continue;
+
+        // Bake vertices to World Space to ensure consistency with the GLB writer's scene-root approach.
+        ufbx_matrix geo_to_world;
+        if (fmesh->instances.count > 0) {
+            geo_to_world = fmesh->instances.data[0]->geometry_to_world;
+        } else {
+            memset(&geo_to_world, 0, sizeof(geo_to_world));
+            geo_to_world.m00 = geo_to_world.m11 = geo_to_world.m22 = 1.0f;
+        }
 
         Mesh out_mesh;
         out_mesh.name = fmesh->name.data;
@@ -87,12 +99,16 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
 
         for (size_t fi = 0; fi < fmesh->num_indices; ++fi) {
             uint32_t idx = fmesh->vertex_indices[fi];
-            out.positions.push_back((float)fmesh->vertices[idx].x);
-            out.positions.push_back((float)fmesh->vertices[idx].y);
-            out.positions.push_back((float)fmesh->vertices[idx].z);
+            
+            // Transform position to world space
+            ufbx_vec3 pos = ufbx_transform_position(&geo_to_world, fmesh->vertices[idx]);
+            out.positions.push_back((float)pos.x);
+            out.positions.push_back((float)pos.y);
+            out.positions.push_back((float)pos.z);
             
             if (fmesh->vertex_normal.exists) {
-                ufbx_vec3 n = ufbx_get_vertex_vec3(&fmesh->vertex_normal, fi);
+                ufbx_vec3 n_raw = ufbx_get_vertex_vec3(&fmesh->vertex_normal, fi);
+                ufbx_vec3 n = ufbx_transform_direction(&geo_to_world, n_raw);
                 out.normals.push_back((float)n.x);
                 out.normals.push_back((float)n.y);
                 out.normals.push_back((float)n.z);
@@ -141,33 +157,11 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         out.meshes.push_back(out_mesh);
     }
 
-    // IBMs: Prioritize skin cluster data (Geometry-to-Bone)
-    out.ibms.assign(out.joints.size(), mat4_identity());
-    if (scene->skin_deformers.count > 0) {
-        for (size_t i = 0; i < scene->skin_deformers.count; ++i) {
-            ufbx_skin_deformer* skin = scene->skin_deformers[i];
-            for (size_t c = 0; c < skin->clusters.count; ++c) {
-                ufbx_skin_cluster* cluster = skin->clusters[c];
-                if (cluster->bone_node && node_to_joint.count(cluster->bone_node)) {
-                    int ji = node_to_joint[cluster->bone_node];
-                    ufbx_matrix m = cluster->geometry_to_bone;
-                    mat4 mat;
-                    float* dest = (float*)&mat;
-                    dest[0] = (float)m.cols[0].x; dest[1] = (float)m.cols[0].y; dest[2] = (float)m.cols[0].z; dest[3] = 0;
-                    dest[4] = (float)m.cols[1].x; dest[5] = (float)m.cols[1].y; dest[6] = (float)m.cols[1].z; dest[7] = 0;
-                    dest[8] = (float)m.cols[2].x; dest[9] = (float)m.cols[2].y; dest[10] = (float)m.cols[2].z; dest[11] = 0;
-                    dest[12] = (float)m.cols[3].x; dest[13] = (float)m.cols[3].y; dest[14] = (float)m.cols[3].z; dest[15] = 1;
-                    out.ibms[ji] = mat;
-                }
-            }
-        }
-    } else {
-        // Fallback: Compute from hierarchy if no skin exists
-        out.compute_bind_pose();
-        out.ibms = out.computed_ibms;
-    }
+    // IBMs: Use world-space computed IBMs since vertices are now in world space.
+    // This provides a consistent rest pose even if loaded IBMs differ from the rest hierarchy.
+    out.ibms = out.computed_ibms;
 
-    // Animations
+    // Phase 3 - Animations (Extract Sparse Baked Data)
     for (size_t si = 0; si < scene->anim_stacks.count; ++si) {
         ufbx_anim_stack* stack = scene->anim_stacks[si];
         ufbx_bake_opts bake_opts = { 0 };
@@ -176,7 +170,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
 
         AnimationDef ad;
         ad.name = stack->name.data;
-        ad.duration = 0.0;
+        ad.duration = baked_anim->playback_duration;
         ad.bones.resize(out.joints.size());
 
         for (size_t ji = 0; ji < out.joints.size(); ++ji) {
@@ -190,38 +184,40 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
             if (!baked_node) continue;
 
             BoneAnim& ba = ad.bones[ji];
-            float prev_q[4];
-            memcpy(prev_q, out.joints[ji].rotate, 16);
             
-            double duration = stack->time_end - stack->time_begin;
-            int num_frames = (int)(duration * BASE_FPS) + 1;
+            // Extract Translations
+            for (size_t k = 0; k < baked_node->translation_keys.count; ++k) {
+                ufbx_baked_vec3 key = baked_node->translation_keys.data[k];
+                ba.translation.times.push_back(key.time);
+                ba.translation.values.push_back((float)key.value.x);
+                ba.translation.values.push_back((float)key.value.y);
+                ba.translation.values.push_back((float)key.value.z);
+            }
 
-            for (int fi = 0; fi < num_frames; ++fi) {
-                double key_time = (double)fi / (double)BASE_FPS;
-                ad.duration = std::max(ad.duration, key_time);
-                ufbx_transform tr = ufbx_evaluate_transform(stack->anim, node, key_time);
-                float t[3] = {(float)tr.translation.x, (float)tr.translation.y, (float)tr.translation.z};
-                float q[4] = {(float)tr.rotation.x, (float)tr.rotation.y, (float)tr.rotation.z, (float)tr.rotation.w};
-                float s[3] = {(float)tr.scale.x, (float)tr.scale.y, (float)tr.scale.z};
-                
-                stabilize_trs(t, q, s);
-                float dot = q[0]*prev_q[0] + q[1]*prev_q[1] + q[2]*prev_q[2] + q[3]*prev_q[3];
-                if (dot < 0) { q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2]; q[3] = -q[3]; }
+            // Extract Rotations
+            float prev_q[4] = {0,0,0,1};
+            for (size_t k = 0; k < baked_node->rotation_keys.count; ++k) {
+                ufbx_baked_quat key = baked_node->rotation_keys.data[k];
+                float q[4] = {(float)key.value.x, (float)key.value.y, (float)key.value.z, (float)key.value.w};
+                if (k > 0) {
+                    float dot = q[0]*prev_q[0] + q[1]*prev_q[1] + q[2]*prev_q[2] + q[3]*prev_q[3];
+                    if (dot < 0) { q[0]=-q[0]; q[1]=-q[1]; q[2]=-q[2]; q[3]=-q[3]; }
+                }
                 memcpy(prev_q, q, 16);
-                
-                ba.translation.times.push_back(key_time);
-                ba.translation.values.push_back(t[0]);
-                ba.translation.values.push_back(t[1]);
-                ba.translation.values.push_back(t[2]);
-                ba.rotation.times.push_back(key_time);
+                ba.rotation.times.push_back(key.time);
                 ba.rotation.values.push_back(q[0]);
                 ba.rotation.values.push_back(q[1]);
                 ba.rotation.values.push_back(q[2]);
                 ba.rotation.values.push_back(q[3]);
-                ba.scale.times.push_back(key_time);
-                ba.scale.values.push_back(s[0]);
-                ba.scale.values.push_back(s[1]);
-                ba.scale.values.push_back(s[2]);
+            }
+
+            // Extract Scale
+            for (size_t k = 0; k < baked_node->scale_keys.count; ++k) {
+                ufbx_baked_vec3 key = baked_node->scale_keys.data[k];
+                ba.scale.times.push_back(key.time);
+                ba.scale.values.push_back((float)key.value.x);
+                ba.scale.values.push_back((float)key.value.y);
+                ba.scale.values.push_back((float)key.value.z);
             }
         }
         out.animations.push_back(ad);
