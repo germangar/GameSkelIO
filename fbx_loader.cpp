@@ -35,12 +35,24 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
     }
 
     // Phase 1 - Extract Skeleton (Full Hierarchy)
+    // We add an explicit IDENTITY ROOT at index 0.
+    // This ensures that unskinned meshes baked to world space can be attached to an 
+    // identity transform, preventing double-transformation from FBX root scaling.
     std::map<ufbx_node*, int> node_to_joint;
+    
+    Joint root;
+    root.name = "world_root";
+    root.parent = -1;
+    root.translate[0] = root.translate[1] = root.translate[2] = 0.0f;
+    root.rotate[0] = root.rotate[1] = root.rotate[2] = 0.0f; root.rotate[3] = 1.0f;
+    root.scale[0] = root.scale[1] = root.scale[2] = 1.0f;
+    out.joints.push_back(root);
+
     for (size_t i = 0; i < scene->nodes.count; ++i) {
         ufbx_node* node = scene->nodes[i];
         Joint j;
         j.name = node->name.data;
-        j.parent = -1;
+        j.parent = 0; // Default parent is our new world root
         
         float t[3] = { (float)node->local_transform.translation.x, (float)node->local_transform.translation.y, (float)node->local_transform.translation.z };
         float r[4] = { (float)node->local_transform.rotation.x, (float)node->local_transform.rotation.y, (float)node->local_transform.rotation.z, (float)node->local_transform.rotation.w };
@@ -63,6 +75,8 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
             int ji = node_to_joint[node];
             if (node->parent && node_to_joint.count(node->parent)) {
                 out.joints[ji].parent = node_to_joint[node->parent];
+            } else {
+                out.joints[ji].parent = 0; // Attach scene-level nodes to world_root
             }
         }
     }
@@ -75,90 +89,117 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         ufbx_mesh* fmesh = scene->meshes[i];
         if (fmesh->num_indices == 0) continue;
 
-        // Bake vertices to World Space to ensure consistency with the GLB writer's scene-root approach.
+        // Find the first instance of this mesh to determine its world-space attachment
+        ufbx_node* mesh_node = nullptr;
+        if (fmesh->instances.count > 0) mesh_node = fmesh->instances.data[0];
+
+        // Unified Model-Space Skinning:
+        // All vertices are stored in World Space at Rest Pose.
         ufbx_matrix geo_to_world;
-        if (fmesh->instances.count > 0) {
-            geo_to_world = fmesh->instances.data[0]->geometry_to_world;
+        if (mesh_node) {
+            geo_to_world = mesh_node->geometry_to_world;
         } else {
             memset(&geo_to_world, 0, sizeof(geo_to_world));
             geo_to_world.m00 = geo_to_world.m11 = geo_to_world.m22 = 1.0f;
         }
 
+        // For static meshes, we assign them to world_root (0) with weight 1.0.
+        // Since vertices are baked to world space, and world_root is identity, 
+        // the shader will render them exactly at their baked world positions.
+        int default_joint = 0; 
+
         Mesh out_mesh;
         out_mesh.name = fmesh->name.data;
         out_mesh.first_vertex = (uint32_t)out.positions.size() / 3;
         out_mesh.first_triangle = (uint32_t)out.indices.size() / 3;
-        out_mesh.num_vertexes = (uint32_t)fmesh->num_indices;
-        out_mesh.num_triangles = (uint32_t)fmesh->num_indices / 3;
-        
+        uint32_t vertex_counter = 0;
+
         if (fmesh->materials.count > 0 && fmesh->materials[0]) {
             out_mesh.material_name = fmesh->materials[0]->name.data;
         } else {
             out_mesh.material_name = "default";
         }
 
-        for (size_t fi = 0; fi < fmesh->num_indices; ++fi) {
-            uint32_t idx = fmesh->vertex_indices[fi];
-            
-            // Transform position to world space
-            ufbx_vec3 pos = ufbx_transform_position(&geo_to_world, fmesh->vertices[idx]);
-            out.positions.push_back((float)pos.x);
-            out.positions.push_back((float)pos.y);
-            out.positions.push_back((float)pos.z);
-            
-            if (fmesh->vertex_normal.exists) {
-                ufbx_vec3 n_raw = ufbx_get_vertex_vec3(&fmesh->vertex_normal, fi);
-                ufbx_vec3 n = ufbx_transform_direction(&geo_to_world, n_raw);
-                out.normals.push_back((float)n.x);
-                out.normals.push_back((float)n.y);
-                out.normals.push_back((float)n.z);
-            } else {
-                for (int n = 0; n < 3; ++n) out.normals.push_back(0.0f);
-            }
-            
-            if (fmesh->vertex_uv.exists) {
-                ufbx_vec2 uv = ufbx_get_vertex_vec2(&fmesh->vertex_uv, fi);
-                out.texcoords.push_back((float)uv.x);
-                out.texcoords.push_back(1.0f - (float)uv.y);
-            } else {
-                for (int u = 0; u < 2; ++u) out.texcoords.push_back(0.0f);
-            }
+        std::vector<uint32_t> tri_indices(std::max((size_t)1, fmesh->max_face_triangles) * 3);
 
-            float weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            uint8_t joints[4] = { 0, 0, 0, 0 };
+        for (size_t face_i = 0; face_i < fmesh->num_faces; ++face_i) {
+            ufbx_face face = fmesh->faces.data[face_i];
+            uint32_t num_tris = ufbx_triangulate_face(tri_indices.data(), tri_indices.size(), fmesh, face);
 
-            if (fmesh->skin_deformers.count > 0) {
-                ufbx_skin_deformer* skin = fmesh->skin_deformers[0];
-                if (skin && skin->max_weights_per_vertex > 0) {
-                    ufbx_skin_vertex s_vert = skin->vertices[idx];
-                    float total_w = 0.0f;
-                    int actual_weights = std::min((int)s_vert.num_weights, 4);
-                    for (int w = 0; w < actual_weights; ++w) {
-                        ufbx_skin_weight sw = skin->weights[s_vert.weight_begin + w];
-                        ufbx_node* joint_node = skin->clusters[sw.cluster_index]->bone_node;
-                        if (joint_node && node_to_joint.count(joint_node)) {
-                            joints[w] = (uint8_t)node_to_joint[joint_node];
-                            weights[w] = (float)sw.weight;
-                            total_w += weights[w];
+            for (uint32_t k = 0; k < num_tris * 3; ++k) {
+                uint32_t fi = tri_indices[k];
+                uint32_t idx = fmesh->vertex_indices[fi];
+                
+                // Bake vertex to WORLD space (Rest Pose)
+                ufbx_vec3 pos = ufbx_transform_position(&geo_to_world, fmesh->vertices[idx]);
+                out.positions.push_back((float)pos.x);
+                out.positions.push_back((float)pos.y);
+                out.positions.push_back((float)pos.z);
+                
+                if (fmesh->vertex_normal.exists) {
+                    ufbx_vec3 n_raw = ufbx_get_vertex_vec3(&fmesh->vertex_normal, fi);
+                    ufbx_vec3 n = ufbx_transform_direction(&geo_to_world, n_raw);
+                    out.normals.push_back((float)n.x);
+                    out.normals.push_back((float)n.y);
+                    out.normals.push_back((float)n.z);
+                } else {
+                    for (int n = 0; n < 3; ++n) out.normals.push_back(0.0f);
+                }
+                
+                if (fmesh->vertex_uv.exists) {
+                    ufbx_vec2 uv = ufbx_get_vertex_vec2(&fmesh->vertex_uv, fi);
+                    out.texcoords.push_back((float)uv.x);
+                    out.texcoords.push_back(1.0f - (float)uv.y);
+                } else {
+                    for (int u = 0; u < 2; ++u) out.texcoords.push_back(0.0f);
+                }
+
+                float weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+                uint8_t joints[4] = { 0, 0, 0, 0 };
+
+                if (fmesh->skin_deformers.count > 0) {
+                    ufbx_skin_deformer* skin = fmesh->skin_deformers[0];
+                    if (skin && skin->max_weights_per_vertex > 0) {
+                        ufbx_skin_vertex s_vert = skin->vertices[idx];
+                        float total_w = 0.0f;
+                        int actual_weights = std::min((int)s_vert.num_weights, 4);
+                        for (int w = 0; w < actual_weights; ++w) {
+                            ufbx_skin_weight sw = skin->weights[s_vert.weight_begin + w];
+                            ufbx_node* joint_node = skin->clusters[sw.cluster_index]->bone_node;
+                            if (joint_node && node_to_joint.count(joint_node)) {
+                                joints[w] = (uint8_t)node_to_joint[joint_node];
+                                weights[w] = (float)sw.weight;
+                                total_w += weights[w];
+                            }
+                        }
+                        if (total_w > 1e-6f) {
+                            for (int w = 0; w < 4; ++w) weights[w] /= total_w;
+                        } else {
+                            joints[0] = (uint8_t)default_joint;
+                            weights[0] = 1.0f;
                         }
                     }
-                    if (total_w > 1e-6f) {
-                        for (int w = 0; w < 4; ++w) weights[w] /= total_w;
-                    }
+                } else {
+                    joints[0] = (uint8_t)default_joint;
+                    weights[0] = 1.0f;
                 }
-            }
 
-            for (int k = 0; k < 4; ++k) {
-                out.joints_0.push_back(joints[k]);
-                out.weights_0.push_back(weights[k]);
+                for (int w = 0; w < 4; ++w) {
+                    if (joints[w] >= 255) joints[w] = 0;
+                    out.joints_0.push_back(joints[w]);
+                    out.weights_0.push_back(weights[w]);
+                }
+                out.indices.push_back((uint32_t)(out_mesh.first_vertex + vertex_counter));
+                vertex_counter++;
             }
-            out.indices.push_back((uint32_t)(out_mesh.first_vertex + fi));
         }
+
+        out_mesh.num_vertexes = vertex_counter;
+        out_mesh.num_triangles = vertex_counter / 3;
         out.meshes.push_back(out_mesh);
     }
 
-    // IBMs: Use world-space computed IBMs since vertices are now in world space.
-    // This provides a consistent rest pose even if loaded IBMs differ from the rest hierarchy.
+    // IBMs: Use world-space computed IBMs.
     out.ibms = out.computed_ibms;
 
     // Phase 3 - Animations (Extract Sparse Baked Data)

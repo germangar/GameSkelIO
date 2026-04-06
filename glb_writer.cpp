@@ -172,9 +172,13 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model) {
         ibm_acc = alloc_accessor(out, &out->buffer_views[ibm_view_idx], cgltf_type_mat4, cgltf_component_type_r_32f, source_ibms.size(), 0);
     }
 
-    out->nodes_count = (cgltf_size)(num_joints + num_meshes);
+    out->nodes_count = (cgltf_size)(num_joints + num_meshes + 1);
     out->nodes = (cgltf_node*)calloc(out->nodes_count, sizeof(cgltf_node));
-    cgltf_node* joints_start = &out->nodes[0];
+    
+    cgltf_node* scene_root = &out->nodes[0];
+    scene_root->name = strdup("scene_root");
+
+    cgltf_node* joints_start = &out->nodes[1];
     for (size_t i = 0; i < num_joints; ++i) {
         cgltf_node* n = &joints_start[i];
         n->name = sanitize_name(model.joints[i].name.c_str());
@@ -192,34 +196,54 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model) {
             joints_start[i].children_count = (cgltf_size)children_counts[i];
         }
         std::vector<int> current_children(num_joints, 0);
+        int root_joints_count = 0;
         for (size_t i = 0; i < num_joints; ++i) {
             int p = model.joints[i].parent;
             if (p >= 0) {
                 joints_start[p].children[current_children[p]++] = &joints_start[i];
                 joints_start[i].parent = &joints_start[p];
+            } else {
+                root_joints_count++;
             }
         }
+
+        // Attach root joints to scene_root
+        scene_root->children = (cgltf_node**)realloc(scene_root->children, (scene_root->children_count + root_joints_count) * sizeof(cgltf_node*));
+        for (size_t i = 0; i < num_joints; ++i) {
+            if (model.joints[i].parent == -1) {
+                scene_root->children[scene_root->children_count++] = &joints_start[i];
+                joints_start[i].parent = scene_root;
+            }
+        }
+
         out->skins_count = 1;
         out->skins = (cgltf_skin*)calloc(1, sizeof(cgltf_skin));
         out->skins[0].joints_count = (cgltf_size)num_joints;
         out->skins[0].joints = (cgltf_node**)calloc(num_joints, sizeof(cgltf_node*));
         for(size_t i=0; i<num_joints; ++i) out->skins[0].joints[i] = &joints_start[i];
         out->skins[0].inverse_bind_matrices = ibm_acc;
+        // The skeleton root for the skin is the scene_root
+        out->skins[0].skeleton = scene_root;
+    }
+
+    cgltf_node* mesh_nodes = &out->nodes[num_joints + 1];
+    scene_root->children = (cgltf_node**)realloc(scene_root->children, (scene_root->children_count + num_meshes) * sizeof(cgltf_node*));
+    
+    for (size_t i = 0; i < num_meshes; ++i) {
+        mesh_nodes[i].mesh = &out->meshes[i];
+        mesh_nodes[i].name = sanitize_name(model.meshes[i].name.c_str());
+        if (num_joints > 0) {
+            mesh_nodes[i].skin = &out->skins[0];
+        }
+        mesh_nodes[i].parent = scene_root;
+        scene_root->children[scene_root->children_count++] = &mesh_nodes[i];
     }
 
     out->scenes_count = 1;
     out->scenes = (cgltf_scene*)calloc(1, sizeof(cgltf_scene));
-    std::vector<cgltf_node*> scene_roots;
-    for (size_t i = 0; i < num_joints; ++i) if (model.joints[i].parent == -1) scene_roots.push_back(&joints_start[i]);
-    cgltf_node* mesh_nodes = &out->nodes[num_joints];
-    for (size_t i = 0; i < num_meshes; ++i) {
-        mesh_nodes[i].mesh = &out->meshes[i];
-        if (num_joints > 0) mesh_nodes[i].skin = &out->skins[0];
-        scene_roots.push_back(&mesh_nodes[i]);
-    }
-    out->scenes[0].nodes_count = (cgltf_size)scene_roots.size();
-    out->scenes[0].nodes = (cgltf_node**)calloc(scene_roots.size(), sizeof(cgltf_node*));
-    for (size_t i = 0; i < scene_roots.size(); ++i) out->scenes[0].nodes[i] = scene_roots[i];
+    out->scenes[0].nodes_count = 1;
+    out->scenes[0].nodes = (cgltf_node**)calloc(1, sizeof(cgltf_node*));
+    out->scenes[0].nodes[0] = scene_root;
     out->scene = &out->scenes[0];
 
     // Animations

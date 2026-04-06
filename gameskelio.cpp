@@ -463,7 +463,7 @@ extern "C" void gsk_reorder_skeleton(gs_model* model) {
     gsk_free_model(new_c);
 }
 extern "C" uint32_t gsk_get_version(void) {
-    return 1;
+    return 3;
 }
 
 extern "C" bool gsk_move_animation(gs_model* model, uint32_t from_idx, uint32_t to_idx) {

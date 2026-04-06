@@ -22,13 +22,18 @@ This document is technical context for AI agents to understand the architecture,
 - **`gs_legacy_framegroup`**: Metadata struct for format overrides (name, first_frame, num_frames, fps).
 
 ## 4. Format-Specific Logic
-- **IBMs as Source of Truth**: Standardized in all loaders. Every loader (IQM, GLB, FBX) MUST compute or load Inverse Bind Matrices (IBMs) into `gs_model->ibms`. This is the mandatory reference for all mesh warping.
+- **Unified Model-Space Skinning**: Standardized across all loaders (FBX, GLB, IQM).
+    - **Baking**: All mesh geometry is baked into **World Space (Rest Pose)** during the load phase.
+    - **Identity World Root**: Every model is guaranteed to have an identity joint named `world_root` at **index 0**.
+    - **Standardized Skinning**: Every vertex in every mesh MUST have `joints_0` and `weights_0` populated. Unskinned (static) meshes are explicitly weighted 1.0 to the `world_root` (joint 0).
+- **IBMs as Source of Truth**: Standardized in all loaders. Every loader MUST compute or load Inverse Bind Matrices (IBMs) into `gs_model->ibms`. This is the mandatory reference for all mesh warping.
 - **IQM/SKM Loaders**: Handle Z-up to Y-up conversion. Support `gs_legacy_framegroup` overrides during loading.
 - **IQM Writer**:
     - **Transcoder Mode**: Optionally returns calculated metadata (frame ranges).
     - **Single Animation**: Supports forcing all tracks into one continuous animation stack.
     - **Baking**: Standardizes on `BASE_FPS` (30.0) and uses linear duration snapping.
-- **GLB/FBX**: Support sparse ingestion. FBX uses `ufbx`.
+- **GLB Writer**: Uses a dedicated `scene_root` node to separate the skeleton hierarchy from mesh nodes for compatibility with strict viewers (Windows 3D Viewer).
+- **FBX Loader**: Explicitly triangulates all geometry using `ufbx_triangulate_face` to ensure topological consistency and prevent index wrap-around crashes. Supports sparse ingestion via `ufbx`.
 
 ## 5. Rebinding Architecture (`gsk_rebase_pose`)
 The rebind tool uses a **Mathematical Cancellation** strategy to change rest poses without breaking animations:
