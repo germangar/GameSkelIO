@@ -1,6 +1,5 @@
 @
 # Build artifacts
-*.exe
 *.o
 obj/
 
@@ -10,18 +9,16 @@ Thumbs.db
 
 # Test/Source files to ignore if needed
 *.iqm
+*.skm
+*.skp
 *.glb
 *.fbx
 *.cfg
 *.skin
 *.tga
-!CONVERT.bat
 MP_PadPork_source
 bigvic_iqm
 bigvic_skp
 Bobot
 skmodel2
-tris.skm
-tris.skp
-padpork.skm
-padpork.skp
+

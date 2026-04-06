@@ -1,6 +1,2 @@
-3.1 Euler Alias Solver Completeness [DONE]
-Logic: math_utils.h:L74 (quat_to_euler_near)
-Note: The solver now implements a robust "Quad-Branch" selection strategy.
-Recommendation: Correctly handles all 4 significant aliases for XYZ sequences to ensure smooth rotation near gimbal lock.
-Result: Not good. Discarded.
+ 
 
