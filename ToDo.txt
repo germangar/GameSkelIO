@@ -18,13 +18,13 @@
    - Implement Opacity/Transparency map linking.
    - Make sure the node hierarchy is preserved.
 
-4. Morph Targets (Blend Shapes)
+4. Morph Targets (Blend Shapes) [DONE]
    - Restore `MeshMorphIDs` and ID generation logic.
    - Restore geometry delta calculation and writing.
    - Restore "DeformPercent" animation curve nodes.
    - Make sure the node hierarchy is preserved.
 
-5. Animation Stability & Solver
+5. Animation Stability & Solver [DONE]
    - Restore quaternion hemisphere enforcement (dot product check).
    - Switch back to `quat_to_euler_near` for frame-to-frame continuity.
    - Make sure the node hierarchy is preserved.
