@@ -155,6 +155,18 @@ typedef struct gs_morph_target {
  * joints_0: 4 joint indices per vertex.
  * weights_0: 4 joint weights per vertex.
  */
+/**
+ * Defines a baked, frame-based animation.
+ * These are generated on-demand from the time-based sparse tracks in gs_model.
+ * They are NOT stored as part of the gs_model struct and must be freed manually.
+ */
+typedef struct gs_baked_anim {
+    uint32_t num_frames;
+    uint32_t num_joints;
+    float fps;
+    float* data; // Interleaved data: num_frames * num_joints * 10 (T3, R4, S3)
+} gs_baked_anim;
+
 typedef struct gs_model {
     gs_coord_system orientation;
     gs_winding_order winding;
@@ -239,8 +251,16 @@ bool gsk_move_animation(gs_model* model, uint32_t from_idx, uint32_t to_idx);
 void gsk_compute_bind_pose(gs_model* model);
 void gsk_compute_bounds(gs_model* model);
 bool gsk_validate_skeleton(gs_model* model);
-void gsk_reorder_skeleton(gs_model* model);
+bool gsk_reorder_skeleton(gs_model* model);
 bool gsk_convert_orientation(gs_model* model, gs_coord_system target_orientation, gs_winding_order target_winding);
+
+/**
+ * Bakes a specific animation clip into a fixed-rate frame buffer.
+ * The resulting gs_baked_anim is allocated on-demand and must be freed with gsk_free_baked_anim.
+ * It is NOT part of the gs_model lifetime.
+ */
+gs_baked_anim* gsk_bake_animation(const gs_model* model, uint32_t anim_idx, float fps);
+void gsk_free_baked_anim(gs_baked_anim* baked);
 
 #ifdef __cplusplus
 }

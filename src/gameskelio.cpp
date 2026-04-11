@@ -15,6 +15,7 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <cmath>
 
 static char* my_strdup(const std::string& s) {
     if (s.empty()) return nullptr;
@@ -24,7 +25,7 @@ static char* my_strdup(const std::string& s) {
 }
 
 static void copy_anim_channel_to_c(const AnimChannel& src, gs_anim_channel& dst, int num_values_per_key) {
-    dst.num_keys = src.times.size();
+    dst.num_keys = (uint32_t)src.times.size();
     if (dst.num_keys > 0) {
         dst.times = (double*)malloc(dst.num_keys * sizeof(double));
         memcpy(dst.times, src.times.data(), dst.num_keys * sizeof(double));
@@ -47,7 +48,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
     c->radius = cpp.radius;
     c->xyradius = cpp.xyradius;
 
-    c->num_joints = cpp.joints.size();
+    c->num_joints = (uint32_t)cpp.joints.size();
     if (c->num_joints > 0) {
         c->joints = (gs_joint*)calloc(c->num_joints, sizeof(gs_joint));
         for (size_t i = 0; i < c->num_joints; ++i) {
@@ -59,7 +60,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         }
     }
 
-    c->num_materials = cpp.materials.size();
+    c->num_materials = (uint32_t)cpp.materials.size();
     if (c->num_materials > 0) {
         c->materials = (gs_material*)calloc(c->num_materials, sizeof(gs_material));
         for (size_t i = 0; i < c->num_materials; ++i) {
@@ -85,7 +86,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         }
     }
 
-    c->num_meshes = cpp.meshes.size();
+    c->num_meshes = (uint32_t)cpp.meshes.size();
     if (c->num_meshes > 0) {
         c->meshes = (gs_mesh*)calloc(c->num_meshes, sizeof(gs_mesh));
         for (size_t i = 0; i < c->num_meshes; ++i) {
@@ -98,13 +99,13 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         }
     }
 
-    c->num_animations = cpp.animations.size();
+    c->num_animations = (uint32_t)cpp.animations.size();
     if (c->num_animations > 0) {
         c->animations = (gs_animation*)calloc(c->num_animations, sizeof(gs_animation));
         for (size_t i = 0; i < c->num_animations; ++i) {
             c->animations[i].name = my_strdup(cpp.animations[i].name);
             c->animations[i].duration = cpp.animations[i].duration;
-            c->animations[i].num_bones = cpp.animations[i].bones.size();
+            c->animations[i].num_bones = (uint32_t)cpp.animations[i].bones.size();
             if (c->animations[i].num_bones > 0) {
                 c->animations[i].bones = (gs_bone_anim*)calloc(c->animations[i].num_bones, sizeof(gs_bone_anim));
                 for (size_t j = 0; j < c->animations[i].num_bones; ++j) {
@@ -113,7 +114,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
                     copy_anim_channel_to_c(cpp.animations[i].bones[j].scale, c->animations[i].bones[j].scale, 3);
                 }
             }
-            c->animations[i].num_morph_targets = cpp.animations[i].morph_weights.size();
+            c->animations[i].num_morph_targets = (uint32_t)cpp.animations[i].morph_weights.size();
             if (c->animations[i].num_morph_targets > 0) {
                 c->animations[i].morph_weights = (gs_anim_channel*)calloc(c->animations[i].num_morph_targets, sizeof(gs_anim_channel));
                 for (size_t j = 0; j < c->animations[i].num_morph_targets; ++j) {
@@ -123,7 +124,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         }
     }
 
-    c->num_vertices = cpp.positions.size() / 3;
+    c->num_vertices = (uint32_t)cpp.positions.size() / 3;
     if (c->num_vertices > 0) {
         c->positions = (float*)malloc(cpp.positions.size() * sizeof(float));
         memcpy(c->positions, cpp.positions.data(), cpp.positions.size() * sizeof(float));
@@ -164,7 +165,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         memcpy(c->weights_0, cpp.weights_0.data(), cpp.weights_0.size() * sizeof(float));
     }
 
-    c->num_morph_targets = cpp.morph_targets.size();
+    c->num_morph_targets = (uint32_t)cpp.morph_targets.size();
     if (c->num_morph_targets > 0) {
         c->morph_targets = (gs_morph_target*)calloc(c->num_morph_targets, sizeof(gs_morph_target));
         for (size_t i = 0; i < c->num_morph_targets; ++i) {
@@ -180,7 +181,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         }
     }
 
-    c->num_indices = cpp.indices.size();
+    c->num_indices = (uint32_t)cpp.indices.size();
     if (c->num_indices > 0 && !cpp.indices.empty()) {
         c->indices = (uint32_t*)malloc(cpp.indices.size() * sizeof(uint32_t));
         memcpy(c->indices, cpp.indices.data(), cpp.indices.size() * sizeof(uint32_t));
@@ -591,8 +592,8 @@ extern "C" bool gsk_validate_skeleton(gs_model* model) {
     return cpp.validate_skeleton();
 }
 
-extern "C" void gsk_reorder_skeleton(gs_model* model) {
-    if (!model) return;
+extern "C" bool gsk_reorder_skeleton(gs_model* model) {
+    if (!model) return false;
     Model cpp = model_c_to_cpp(model);
     cpp.reorder_skeleton();
     gs_model* new_c = model_cpp_to_c(cpp);
@@ -600,6 +601,7 @@ extern "C" void gsk_reorder_skeleton(gs_model* model) {
     *model = *new_c;
     *new_c = temp;
     gsk_free_model(new_c);
+    return true;
 }
 extern "C" uint32_t gsk_get_version(void) {
     return 3;
@@ -797,29 +799,29 @@ extern "C" bool gsk_convert_orientation(gs_model* model, gs_coord_system target_
     // Vertex data
     if (model->num_vertices > 0) {
         if (model->positions && !cpp.positions.empty()) {
-            memcpy(model->positions, cpp.positions.data(), cpp.positions.size() * sizeof(float));
+            memcpy(model->positions, cpp.positions.data(), (size_t)cpp.positions.size() * sizeof(float));
         }
         if (model->normals && !cpp.normals.empty()) {
-            memcpy(model->normals, cpp.normals.data(), cpp.normals.size() * sizeof(float));
+            memcpy(model->normals, cpp.normals.data(), (size_t)cpp.normals.size() * sizeof(float));
         }
         if (model->tangents && !cpp.tangents.empty()) {
-            memcpy(model->tangents, cpp.tangents.data(), cpp.tangents.size() * sizeof(float));
+            memcpy(model->tangents, cpp.tangents.data(), (size_t)cpp.tangents.size() * sizeof(float));
         }
     }
 
     // Morph Targets
     for (uint32_t i = 0; i < model->num_morph_targets; ++i) {
         if (model->morph_targets[i].positions && !cpp.morph_targets[i].positions.empty()) {
-            memcpy(model->morph_targets[i].positions, cpp.morph_targets[i].positions.data(), cpp.morph_targets[i].positions.size() * sizeof(float));
+            memcpy(model->morph_targets[i].positions, cpp.morph_targets[i].positions.data(), (size_t)cpp.morph_targets[i].positions.size() * sizeof(float));
         }
         if (model->morph_targets[i].normals && !cpp.morph_targets[i].normals.empty()) {
-            memcpy(model->morph_targets[i].normals, cpp.morph_targets[i].normals.data(), cpp.morph_targets[i].normals.size() * sizeof(float));
+            memcpy(model->morph_targets[i].normals, cpp.morph_targets[i].normals.data(), (size_t)cpp.morph_targets[i].normals.size() * sizeof(float));
         }
     }
 
     // Indices
     if (model->num_indices > 0 && model->indices && !cpp.indices.empty()) {
-        memcpy(model->indices, cpp.indices.data(), cpp.indices.size() * sizeof(uint32_t));
+        memcpy(model->indices, cpp.indices.data(), (size_t)cpp.indices.size() * sizeof(uint32_t));
     }
 
     // Animation Tracks
@@ -829,27 +831,73 @@ extern "C" bool gsk_convert_orientation(gs_model* model, gs_coord_system target_
             const BoneAnim& src_bone = cpp.animations[i].bones[j];
             
             if (dst_bone.translation.values && !src_bone.translation.values.empty()) {
-                memcpy(dst_bone.translation.values, src_bone.translation.values.data(), src_bone.translation.values.size() * sizeof(float));
+                memcpy(dst_bone.translation.values, src_bone.translation.values.data(), (size_t)src_bone.translation.values.size() * sizeof(float));
             }
             if (dst_bone.rotation.values && !src_bone.rotation.values.empty()) {
-                memcpy(dst_bone.rotation.values, src_bone.rotation.values.data(), src_bone.rotation.values.size() * sizeof(float));
+                memcpy(dst_bone.rotation.values, src_bone.rotation.values.data(), (size_t)src_bone.rotation.values.size() * sizeof(float));
             }
             if (dst_bone.scale.values && !src_bone.scale.values.empty()) {
-                memcpy(dst_bone.scale.values, src_bone.scale.values.data(), src_bone.scale.values.size() * sizeof(float));
+                memcpy(dst_bone.scale.values, src_bone.scale.values.data(), (size_t)src_bone.scale.values.size() * sizeof(float));
             }
         }
     }
 
     // Matrices
     if (model->world_matrices && !cpp.world_matrices.empty()) {
-        memcpy(model->world_matrices, cpp.world_matrices.data(), cpp.world_matrices.size() * sizeof(gs_mat4));
+        memcpy(model->world_matrices, cpp.world_matrices.data(), (size_t)cpp.world_matrices.size() * sizeof(gs_mat4));
     }
     if (model->ibms && !cpp.ibms.empty()) {
-        memcpy(model->ibms, cpp.ibms.data(), cpp.ibms.size() * sizeof(gs_mat4));
+        memcpy(model->ibms, cpp.ibms.data(), (size_t)cpp.ibms.size() * sizeof(gs_mat4));
     }
     if (model->computed_ibms && !cpp.computed_ibms.empty()) {
-        memcpy(model->computed_ibms, cpp.computed_ibms.data(), cpp.computed_ibms.size() * sizeof(gs_mat4));
+        memcpy(model->computed_ibms, cpp.computed_ibms.data(), (size_t)cpp.computed_ibms.size() * sizeof(gs_mat4));
     }
 
     return true;
+}
+
+extern "C" gs_baked_anim* gsk_bake_animation(const gs_model* model, uint32_t anim_idx, float fps) {
+    if (!model || anim_idx >= model->num_animations) return nullptr;
+
+    Model cpp = model_c_to_cpp(model);
+    if (anim_idx >= (uint32_t)cpp.animations.size()) return nullptr;
+    
+    const AnimationDef& anim = cpp.animations[anim_idx];
+    uint32_t nf = (uint32_t)std::round(anim.duration * fps) + 1;
+    uint32_t nj = (uint32_t)cpp.joints.size();
+
+    gs_baked_anim* baked = (gs_baked_anim*)malloc(sizeof(gs_baked_anim));
+    if (!baked) return nullptr;
+    baked->num_frames = nf;
+    baked->num_joints = nj;
+    baked->fps = fps;
+    baked->data = (float*)malloc((size_t)nf * nj * 10 * sizeof(float));
+    if (!baked->data) {
+        free(baked);
+        return nullptr;
+    }
+
+    std::vector<Pose> poses;
+    for (uint32_t i = 0; i < nf; ++i) {
+        double t = (double)i / (double)fps;
+        if (t > anim.duration) t = anim.duration;
+
+        cpp.evaluate_animation((int)anim_idx, t, poses);
+
+        for (uint32_t j = 0; j < nj; ++j) {
+            float* dst = &baked->data[(i * nj + j) * 10];
+            // T3, R4, S3
+            memcpy(&dst[0], poses[j].translate, 3 * sizeof(float));
+            memcpy(&dst[3], poses[j].rotate, 4 * sizeof(float));
+            memcpy(&dst[7], poses[j].scale, 3 * sizeof(float));
+        }
+    }
+
+    return baked;
+}
+
+extern "C" void gsk_free_baked_anim(gs_baked_anim* baked) {
+    if (!baked) return;
+    if (baked->data) free(baked->data);
+    free(baked);
 }
