@@ -97,15 +97,18 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model) {
 
     out->buffer_views[index_view_idx].offset = buf.size();
 
-    std::map<std::string, cgltf_material*> mat_map;
-    for (auto& m : model.meshes) mat_map[m.material_name] = nullptr;
-    out->materials_count = (cgltf_size)mat_map.size();
+    out->materials_count = (cgltf_size)model.materials.size();
     if (out->materials_count > 0) {
         out->materials = (cgltf_material*)calloc(out->materials_count, sizeof(cgltf_material));
-        uint32_t mat_idx = 0;
-        for (auto& kv : mat_map) {
-            kv.second = &out->materials[mat_idx++];
-            kv.second->name = sanitize_name(kv.first.c_str());
+        for (size_t i = 0; i < model.materials.size(); ++i) {
+            cgltf_material* mat = &out->materials[i];
+            const Material& src = model.materials[i];
+            mat->name = sanitize_name(src.name.c_str());
+            mat->has_pbr_metallic_roughness = true;
+            memcpy(mat->pbr_metallic_roughness.base_color_factor, src.base_color, 16);
+            mat->pbr_metallic_roughness.metallic_factor = src.metallic_factor;
+            mat->pbr_metallic_roughness.roughness_factor = src.roughness_factor;
+            memcpy(mat->emissive_factor, src.emissive_color, 12);
         }
     }
 
@@ -118,7 +121,10 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model) {
         mesh->primitives = (cgltf_primitive*)calloc(1, sizeof(cgltf_primitive));
         cgltf_primitive* prim = &mesh->primitives[0];
         prim->type = cgltf_primitive_type_triangles;
-        prim->material = mat_map[model.meshes[i].material_name];
+        
+        if (model.meshes[i].material_idx >= 0 && model.meshes[i].material_idx < (int)model.materials.size()) {
+            prim->material = &out->materials[model.meshes[i].material_idx];
+        }
 
         std::vector<cgltf_attribute> attrs;
         auto add_attr = [&](const char* name, cgltf_attribute_type type, cgltf_type data_type, cgltf_component_type comp, size_t off) {

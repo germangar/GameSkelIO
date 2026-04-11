@@ -56,16 +56,38 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         }
     }
 
+    c->num_materials = cpp.materials.size();
+    if (c->num_materials > 0) {
+        c->materials = (gs_material*)calloc(c->num_materials, sizeof(gs_material));
+        for (size_t i = 0; i < c->num_materials; ++i) {
+            const Material& src = cpp.materials[i];
+            gs_material& dst = c->materials[i];
+            dst.name = my_strdup(src.name);
+            dst.material_type = src.material_type;
+            dst.color_map = my_strdup(src.color_map);
+            dst.normal_map = my_strdup(src.normal_map);
+            dst.metallic_map = my_strdup(src.metallic_map);
+            dst.roughness_map = my_strdup(src.roughness_map);
+            dst.specular_map = my_strdup(src.specular_map);
+            dst.shininess_map = my_strdup(src.shininess_map);
+            dst.emissive_map = my_strdup(src.emissive_map);
+            dst.occlusion_map = my_strdup(src.occlusion_map);
+            dst.opacity_map = my_strdup(src.opacity_map);
+            memcpy(dst.base_color, src.base_color, sizeof(dst.base_color));
+            memcpy(dst.specular_color, src.specular_color, sizeof(dst.specular_color));
+            memcpy(dst.emissive_color, src.emissive_color, sizeof(dst.emissive_color));
+            dst.metallic_factor = src.metallic_factor;
+            dst.roughness_factor = src.roughness_factor;
+            dst.emissive_factor = src.emissive_factor;
+        }
+    }
+
     c->num_meshes = cpp.meshes.size();
     if (c->num_meshes > 0) {
         c->meshes = (gs_mesh*)calloc(c->num_meshes, sizeof(gs_mesh));
         for (size_t i = 0; i < c->num_meshes; ++i) {
             c->meshes[i].name = my_strdup(cpp.meshes[i].name);
-            c->meshes[i].material_name = my_strdup(cpp.meshes[i].material_name);
-            c->meshes[i].color_map = my_strdup(cpp.meshes[i].color_map);
-            c->meshes[i].normal_map = my_strdup(cpp.meshes[i].normal_map);
-            c->meshes[i].roughness_map = my_strdup(cpp.meshes[i].roughness_map);
-            c->meshes[i].occlusion_map = my_strdup(cpp.meshes[i].occlusion_map);
+            c->meshes[i].material_idx = cpp.meshes[i].material_idx;
             c->meshes[i].first_vertex = cpp.meshes[i].first_vertex;
             c->meshes[i].num_vertexes = cpp.meshes[i].num_vertexes;
             c->meshes[i].first_triangle = cpp.meshes[i].first_triangle;
@@ -88,6 +110,13 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
                     copy_anim_channel_to_c(cpp.animations[i].bones[j].scale, c->animations[i].bones[j].scale, 3);
                 }
             }
+            c->animations[i].num_morph_targets = cpp.animations[i].morph_weights.size();
+            if (c->animations[i].num_morph_targets > 0) {
+                c->animations[i].morph_weights = (gs_anim_channel*)calloc(c->animations[i].num_morph_targets, sizeof(gs_anim_channel));
+                for (size_t j = 0; j < c->animations[i].num_morph_targets; ++j) {
+                    copy_anim_channel_to_c(cpp.animations[i].morph_weights[j], c->animations[i].morph_weights[j], 1);
+                }
+            }
         }
     }
 
@@ -107,6 +136,21 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         memcpy(c->texcoords, cpp.texcoords.data(), cpp.texcoords.size() * sizeof(float));
     }
 
+    if (!cpp.tangents.empty()) {
+        c->tangents = (float*)malloc(cpp.tangents.size() * sizeof(float));
+        memcpy(c->tangents, cpp.tangents.data(), cpp.tangents.size() * sizeof(float));
+    }
+
+    if (!cpp.colors.empty()) {
+        c->colors = (float*)malloc(cpp.colors.size() * sizeof(float));
+        memcpy(c->colors, cpp.colors.data(), cpp.colors.size() * sizeof(float));
+    }
+
+    if (!cpp.texcoords_1.empty()) {
+        c->texcoords_1 = (float*)malloc(cpp.texcoords_1.size() * sizeof(float));
+        memcpy(c->texcoords_1, cpp.texcoords_1.data(), cpp.texcoords_1.size() * sizeof(float));
+    }
+
     if (!cpp.joints_0.empty()) {
         c->joints_0 = (uint8_t*)malloc(cpp.joints_0.size() * sizeof(uint8_t));
         memcpy(c->joints_0, cpp.joints_0.data(), cpp.joints_0.size() * sizeof(uint8_t));
@@ -117,8 +161,24 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         memcpy(c->weights_0, cpp.weights_0.data(), cpp.weights_0.size() * sizeof(float));
     }
 
+    c->num_morph_targets = cpp.morph_targets.size();
+    if (c->num_morph_targets > 0) {
+        c->morph_targets = (gs_morph_target*)calloc(c->num_morph_targets, sizeof(gs_morph_target));
+        for (size_t i = 0; i < c->num_morph_targets; ++i) {
+            c->morph_targets[i].name = my_strdup(cpp.morph_targets[i].name);
+            if (!cpp.morph_targets[i].positions.empty()) {
+                c->morph_targets[i].positions = (float*)malloc(cpp.morph_targets[i].positions.size() * sizeof(float));
+                memcpy(c->morph_targets[i].positions, cpp.morph_targets[i].positions.data(), cpp.morph_targets[i].positions.size() * sizeof(float));
+            }
+            if (!cpp.morph_targets[i].normals.empty()) {
+                c->morph_targets[i].normals = (float*)malloc(cpp.morph_targets[i].normals.size() * sizeof(float));
+                memcpy(c->morph_targets[i].normals, cpp.morph_targets[i].normals.data(), cpp.morph_targets[i].normals.size() * sizeof(float));
+            }
+        }
+    }
+
     c->num_indices = cpp.indices.size();
-    if (c->num_indices > 0) {
+    if (c->num_indices > 0 && !cpp.indices.empty()) {
         c->indices = (uint32_t*)malloc(cpp.indices.size() * sizeof(uint32_t));
         memcpy(c->indices, cpp.indices.data(), cpp.indices.size() * sizeof(uint32_t));
     }
@@ -169,15 +229,36 @@ static Model model_c_to_cpp(const gs_model* c) {
         }
     }
 
+    if (c->num_materials > 0 && c->materials) {
+        cpp.materials.resize(c->num_materials);
+        for (uint32_t i = 0; i < c->num_materials; ++i) {
+            const gs_material& src = c->materials[i];
+            Material& dst = cpp.materials[i];
+            if (src.name) dst.name = src.name;
+            dst.material_type = src.material_type;
+            if (src.color_map) dst.color_map = src.color_map;
+            if (src.normal_map) dst.normal_map = src.normal_map;
+            if (src.metallic_map) dst.metallic_map = src.metallic_map;
+            if (src.roughness_map) dst.roughness_map = src.roughness_map;
+            if (src.specular_map) dst.specular_map = src.specular_map;
+            if (src.shininess_map) dst.shininess_map = src.shininess_map;
+            if (src.emissive_map) dst.emissive_map = src.emissive_map;
+            if (src.occlusion_map) dst.occlusion_map = src.occlusion_map;
+            if (src.opacity_map) dst.opacity_map = src.opacity_map;
+            memcpy(dst.base_color, src.base_color, sizeof(dst.base_color));
+            memcpy(dst.specular_color, src.specular_color, sizeof(dst.specular_color));
+            memcpy(dst.emissive_color, src.emissive_color, sizeof(dst.emissive_color));
+            dst.metallic_factor = src.metallic_factor;
+            dst.roughness_factor = src.roughness_factor;
+            dst.emissive_factor = src.emissive_factor;
+        }
+    }
+
     if (c->num_meshes > 0 && c->meshes) {
         cpp.meshes.resize(c->num_meshes);
         for (uint32_t i = 0; i < c->num_meshes; ++i) {
             if (c->meshes[i].name) cpp.meshes[i].name = c->meshes[i].name;
-            if (c->meshes[i].material_name) cpp.meshes[i].material_name = c->meshes[i].material_name;
-            if (c->meshes[i].color_map) cpp.meshes[i].color_map = c->meshes[i].color_map;
-            if (c->meshes[i].normal_map) cpp.meshes[i].normal_map = c->meshes[i].normal_map;
-            if (c->meshes[i].roughness_map) cpp.meshes[i].roughness_map = c->meshes[i].roughness_map;
-            if (c->meshes[i].occlusion_map) cpp.meshes[i].occlusion_map = c->meshes[i].occlusion_map;
+            cpp.meshes[i].material_idx = c->meshes[i].material_idx;
             cpp.meshes[i].first_vertex = c->meshes[i].first_vertex;
             cpp.meshes[i].num_vertexes = c->meshes[i].num_vertexes;
             cpp.meshes[i].first_triangle = c->meshes[i].first_triangle;
@@ -198,6 +279,12 @@ static Model model_c_to_cpp(const gs_model* c) {
                     copy_anim_channel_to_cpp(c->animations[i].bones[j].scale, cpp.animations[i].bones[j].scale, 3);
                 }
             }
+            if (c->animations[i].num_morph_targets > 0 && c->animations[i].morph_weights) {
+                cpp.animations[i].morph_weights.resize(c->animations[i].num_morph_targets);
+                for (uint32_t j = 0; j < c->animations[i].num_morph_targets; ++j) {
+                    copy_anim_channel_to_cpp(c->animations[i].morph_weights[j], cpp.animations[i].morph_weights[j], 1);
+                }
+            }
         }
     }
 
@@ -205,8 +292,24 @@ static Model model_c_to_cpp(const gs_model* c) {
         if (c->positions) cpp.positions.assign(c->positions, c->positions + c->num_vertices * 3);
         if (c->normals) cpp.normals.assign(c->normals, c->normals + c->num_vertices * 3);
         if (c->texcoords) cpp.texcoords.assign(c->texcoords, c->texcoords + c->num_vertices * 2);
+        if (c->tangents) cpp.tangents.assign(c->tangents, c->tangents + c->num_vertices * 4);
+        if (c->colors) cpp.colors.assign(c->colors, c->colors + c->num_vertices * 4);
+        if (c->texcoords_1) cpp.texcoords_1.assign(c->texcoords_1, c->texcoords_1 + c->num_vertices * 2);
         if (c->joints_0) cpp.joints_0.assign(c->joints_0, c->joints_0 + c->num_vertices * 4);
         if (c->weights_0) cpp.weights_0.assign(c->weights_0, c->weights_0 + c->num_vertices * 4);
+    }
+
+    if (c->num_morph_targets > 0 && c->morph_targets) {
+        cpp.morph_targets.resize(c->num_morph_targets);
+        for (uint32_t i = 0; i < c->num_morph_targets; ++i) {
+            if (c->morph_targets[i].name) cpp.morph_targets[i].name = c->morph_targets[i].name;
+            if (c->morph_targets[i].positions) {
+                cpp.morph_targets[i].positions.assign(c->morph_targets[i].positions, c->morph_targets[i].positions + c->num_vertices * 3);
+            }
+            if (c->morph_targets[i].normals) {
+                cpp.morph_targets[i].normals.assign(c->morph_targets[i].normals, c->morph_targets[i].normals + c->num_vertices * 3);
+            }
+        }
     }
 
     if (c->num_indices > 0 && c->indices) {
@@ -366,14 +469,25 @@ extern "C" void gsk_free_model(gs_model* model) {
         free(model->joints);
     }
 
+    if (model->materials) {
+        for (uint32_t i = 0; i < model->num_materials; ++i) {
+            free(model->materials[i].name);
+            free(model->materials[i].color_map);
+            free(model->materials[i].normal_map);
+            free(model->materials[i].metallic_map);
+            free(model->materials[i].roughness_map);
+            free(model->materials[i].specular_map);
+            free(model->materials[i].shininess_map);
+            free(model->materials[i].emissive_map);
+            free(model->materials[i].occlusion_map);
+            free(model->materials[i].opacity_map);
+        }
+        free(model->materials);
+    }
+
     if (model->meshes) {
         for (uint32_t i = 0; i < model->num_meshes; ++i) {
             free(model->meshes[i].name);
-            free(model->meshes[i].material_name);
-            free(model->meshes[i].color_map);
-            free(model->meshes[i].normal_map);
-            free(model->meshes[i].roughness_map);
-            free(model->meshes[i].occlusion_map);
         }
         free(model->meshes);
     }
@@ -392,6 +506,13 @@ extern "C" void gsk_free_model(gs_model* model) {
                 }
                 free(model->animations[i].bones);
             }
+            if (model->animations[i].morph_weights) {
+                for (uint32_t j = 0; j < model->animations[i].num_morph_targets; ++j) {
+                    free(model->animations[i].morph_weights[j].times);
+                    free(model->animations[i].morph_weights[j].values);
+                }
+                free(model->animations[i].morph_weights);
+            }
         }
         free(model->animations);
     }
@@ -399,8 +520,21 @@ extern "C" void gsk_free_model(gs_model* model) {
     free(model->positions);
     free(model->normals);
     free(model->texcoords);
+    free(model->tangents);
+    free(model->colors);
+    free(model->texcoords_1);
     free(model->joints_0);
     free(model->weights_0);
+
+    if (model->morph_targets) {
+        for (uint32_t i = 0; i < model->num_morph_targets; ++i) {
+            free(model->morph_targets[i].name);
+            free(model->morph_targets[i].positions);
+            free(model->morph_targets[i].normals);
+        }
+        free(model->morph_targets);
+    }
+
     free(model->indices);
     free(model->world_matrices);
     free(model->ibms);
@@ -549,13 +683,9 @@ extern "C" bool gsk_rebase_pose(gs_model* model, uint32_t pose_anim_idx) {
     }
 
     // 3. Retarget Animations
-    int processed_anims = 0;
     for (size_t a = 0; a < cpp.animations.size(); ++a) {
         // Skip retargeting for the new bind itself, or the special "original_bind" animation
         if (a == (size_t)pose_anim_idx || cpp.animations[a].name == "original_bind") continue;
-
-        printf("  Processing Animation: %s...\n", cpp.animations[a].name.c_str());
-        processed_anims++;
 
         // Collect ALL unique timestamps across ALL bones to create a uniform timeline for this animation
         std::set<double> timestamps;
@@ -627,6 +757,5 @@ extern "C" bool gsk_rebase_pose(gs_model* model, uint32_t pose_anim_idx) {
     *new_c = temp;
     gsk_free_model(new_c);
 
-    printf("Rebase finished. Processed %d animations.\n", processed_anims);
     return true;
 }

@@ -49,16 +49,37 @@ typedef struct gs_joint {
  */
 typedef struct gs_mesh {
     char* name;
-    char* material_name;
-    char* color_map;
-    char* normal_map;
-    char* roughness_map;
-    char* occlusion_map;
+    int material_idx;
     uint32_t first_vertex;
     uint32_t num_vertexes;
     uint32_t first_triangle;
     uint32_t num_triangles;
 } gs_mesh;
+
+/**
+ * Defines material properties for a mesh.
+ */
+typedef struct gs_material {
+    char* name;
+    int material_type; // 0 for PBR, 1 for Legacy
+
+    char* color_map;
+    char* normal_map;
+    char* metallic_map;
+    char* roughness_map;
+    char* specular_map;
+    char* shininess_map;
+    char* emissive_map;
+    char* occlusion_map;
+    char* opacity_map;
+
+    float base_color[4];
+    float specular_color[3];
+    float emissive_color[3];
+    float metallic_factor;
+    float roughness_factor;
+    float emissive_factor;
+} gs_material;
 
 /** 
  * A sparse animation channel for a single property (Translation, Rotation, or Scale).
@@ -100,7 +121,19 @@ typedef struct gs_animation {
     double duration;
     uint32_t num_bones;
     gs_bone_anim* bones;
+    uint32_t num_morph_targets;
+    gs_anim_channel* morph_weights; // One channel per morph target
 } gs_animation;
+
+/**
+ * Defines a morph target (blend shape) for a model.
+ * Contains vertex attribute deltas.
+ */
+typedef struct gs_morph_target {
+    char* name;
+    float* positions; // 3 floats per vertex (xyz deltas)
+    float* normals;   // 3 floats per vertex (xyz deltas)
+} gs_morph_target;
 
 /** 
  * The root container for a 3D model.
@@ -112,6 +145,9 @@ typedef struct gs_model {
     uint32_t num_joints;
     gs_joint* joints;
 
+    uint32_t num_materials;
+    gs_material* materials;
+
     uint32_t num_meshes;
     gs_mesh* meshes;
 
@@ -122,8 +158,14 @@ typedef struct gs_model {
     float* positions; // 3 floats per vertex (xyz)
     float* normals;   // 3 floats per vertex (xyz)
     float* texcoords; // 2 floats per vertex (uv)
+    float* tangents;   // 4 floats per vertex (xyzw)
+    float* colors;     // 4 floats per vertex (rgba)
+    float* texcoords_1; // 2 floats per vertex (uv)
     uint8_t* joints_0; // 4 indices per vertex
     float* weights_0; // 4 weights per vertex
+
+    uint32_t num_morph_targets;
+    gs_morph_target* morph_targets;
 
     uint32_t num_indices;
     uint32_t* indices; // 3 indices per triangle

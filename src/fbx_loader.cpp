@@ -85,6 +85,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
     out.compute_bind_pose();
 
     // Phase 2 - Extract Meshes, Materials, and Skinning
+    std::map<std::string, int> material_map;
     for (size_t i = 0; i < scene->meshes.count; ++i) {
         ufbx_mesh* fmesh = scene->meshes[i];
         if (fmesh->num_indices == 0) continue;
@@ -114,11 +115,30 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         out_mesh.first_triangle = (uint32_t)out.indices.size() / 3;
         uint32_t vertex_counter = 0;
 
+        std::string mat_name = "default";
         if (fmesh->materials.count > 0 && fmesh->materials[0]) {
-            out_mesh.material_name = fmesh->materials[0]->name.data;
-        } else {
-            out_mesh.material_name = "default";
+            mat_name = fmesh->materials[0]->name.data;
         }
+
+        if (material_map.find(mat_name) == material_map.end()) {
+            material_map[mat_name] = (int)out.materials.size();
+            Material mat;
+            mat.name = mat_name;
+            ufbx_material* fmat = (fmesh->materials.count > 0) ? fmesh->materials[0] : nullptr;
+            if (fmat) {
+                mat.base_color[0] = (float)fmat->pbr.base_color.value_vec4.x;
+                mat.base_color[1] = (float)fmat->pbr.base_color.value_vec4.y;
+                mat.base_color[2] = (float)fmat->pbr.base_color.value_vec4.z;
+                mat.base_color[3] = (float)fmat->pbr.base_color.value_vec4.w;
+                mat.metallic_factor = (float)fmat->pbr.metalness.value_real;
+                mat.roughness_factor = (float)fmat->pbr.roughness.value_real;
+                mat.emissive_color[0] = (float)fmat->fbx.emission_color.value_vec3.x;
+                mat.emissive_color[1] = (float)fmat->fbx.emission_color.value_vec3.y;
+                mat.emissive_color[2] = (float)fmat->fbx.emission_color.value_vec3.z;
+            }
+            out.materials.push_back(mat);
+        }
+        out_mesh.material_idx = material_map[mat_name];
 
         std::vector<uint32_t> tri_indices(std::max((size_t)1, fmesh->max_face_triangles) * 3);
 

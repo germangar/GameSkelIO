@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <iostream>
+#include <algorithm>
 #include "iqm.h"
 #include "math_utils.h"
 #include "anim_cfg.h"
@@ -37,22 +38,55 @@ struct AnimationDef {
     std::string name;
     double duration;
     std::vector<BoneAnim> bones; // One per joint in the model
+    std::vector<AnimChannel> morph_weights; // One channel per morph target
+};
+
+struct Material {
+    std::string name;
+    int material_type = 0; // 0 for PBR, 1 for Legacy
+
+    std::string color_map;
+    std::string normal_map;
+    std::string metallic_map;
+    std::string roughness_map;
+    std::string specular_map;
+    std::string shininess_map;
+    std::string emissive_map;
+    std::string occlusion_map;
+    std::string opacity_map;
+
+    float base_color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float specular_color[3] = {1.0f, 1.0f, 1.0f};
+    float emissive_color[3] = {0.0f, 0.0f, 0.0f};
+    float metallic_factor = 1.0f;
+    float roughness_factor = 1.0f;
+    float emissive_factor = 1.0f;
 };
 
 struct Mesh {
     std::string name;
-    std::string material_name;
-    std::string color_map;
-    std::string normal_map;
-    std::string roughness_map;
-    std::string occlusion_map;
+    int material_idx = -1;
     uint32_t first_vertex, num_vertexes;
     uint32_t first_triangle, num_triangles;
 };
 
+struct TextureBuffer {
+    std::string original_path;
+    std::vector<uint8_t> data;
+};
+
+struct MorphTarget {
+    std::string name;
+    std::vector<float> positions; // 3 floats per vertex (XYZ deltas)
+    std::vector<float> normals;   // 3 floats per vertex (XYZ deltas)
+};
+
 struct Model {
     std::vector<Joint> joints;
+    std::vector<Material> materials;
     std::vector<Mesh> meshes;
+    std::vector<TextureBuffer> textures;
+    std::vector<MorphTarget> morph_targets;
     // Animation data (Sparse Tracks)
     std::vector<AnimationDef> animations;
     
@@ -60,6 +94,9 @@ struct Model {
     std::vector<float> positions;
     std::vector<float> normals;
     std::vector<float> texcoords;
+    std::vector<float> tangents;
+    std::vector<float> colors;
+    std::vector<float> texcoords_1;
     std::vector<uint8_t> joints_0;
     std::vector<float> weights_0;
     
@@ -244,6 +281,7 @@ struct Model {
 
     // Public sampling helpers for writers/exporters
     void sample_vec3(const AnimChannel& chan, double time, float* out) const {
+        if (chan.times.empty()) return;
         if (time <= chan.times.front()) {
             memcpy(out, chan.values.data(), 12);
             return;
@@ -267,6 +305,7 @@ struct Model {
     }
 
     void sample_quat(const AnimChannel& chan, double time, float* out) const {
+        if (chan.times.empty()) return;
         if (time <= chan.times.front()) {
             memcpy(out, chan.values.data(), 16);
             return;

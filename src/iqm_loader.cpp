@@ -22,7 +22,6 @@ bool load_iqm(const char* path, Model& out) {
     std::vector<AnimConfigEntry> entries;
     
     if (!cfg_path.empty()) {
-        std::cout << "Found animation config: " << cfg_path << std::endl;
         entries = parse_animation_cfg(cfg_path);
         for (const auto& entry : entries) {
             gs_legacy_framegroup fg;
@@ -82,14 +81,31 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
         out.ibms = out.computed_ibms;
     }
 
-    // Meshes
-    out.meshes.resize(hdr->num_meshes);
+    // Meshes and Materials
     if (hdr->num_meshes > 0) {
+        out.meshes.resize(hdr->num_meshes);
         const iqmmesh* iqm_meshes = (const iqmmesh*)(buffer + hdr->ofs_meshes);
         for (uint32_t i = 0; i < hdr->num_meshes; ++i) {
             out.meshes[i].name = text_pool + iqm_meshes[i].name;
-            out.meshes[i].material_name = text_pool + iqm_meshes[i].material;
-            out.meshes[i].color_map = out.meshes[i].material_name;
+            std::string mat_name = text_pool + iqm_meshes[i].material;
+
+            int mat_idx = -1;
+            for (int m = 0; m < (int)out.materials.size(); ++m) {
+                if (out.materials[m].name == mat_name) {
+                    mat_idx = m;
+                    break;
+                }
+            }
+
+            if (mat_idx == -1) {
+                mat_idx = (int)out.materials.size();
+                Material mat;
+                mat.name = mat_name;
+                mat.color_map = mat_name;
+                out.materials.push_back(mat);
+            }
+
+            out.meshes[i].material_idx = mat_idx;
             out.meshes[i].first_vertex = iqm_meshes[i].first_vertex;
             out.meshes[i].num_vertexes = iqm_meshes[i].num_vertexes;
             out.meshes[i].first_triangle = iqm_meshes[i].first_triangle;

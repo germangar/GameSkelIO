@@ -41,7 +41,6 @@ bool write_iqm(const Model& model, const char* output_path, bool force_single_an
         }
     }
 
-    std::cout << "IQM written successfully: " << output_path << "\n";
     return true;
 }
 
@@ -85,7 +84,13 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
     std::vector<iqmmesh> iqm_meshes(model.meshes.size());
     for (size_t i = 0; i < model.meshes.size(); ++i) {
         iqm_meshes[i].name = write_text(text, model.meshes[i].name);
-        iqm_meshes[i].material = write_text(text, model.meshes[i].material_name);
+
+        std::string mat_name = "";
+        if (model.meshes[i].material_idx >= 0 && model.meshes[i].material_idx < (int)model.materials.size()) {
+            mat_name = model.materials[model.meshes[i].material_idx].name;
+        }
+
+        iqm_meshes[i].material = write_text(text, mat_name);
         iqm_meshes[i].first_vertex = model.meshes[i].first_vertex;
         iqm_meshes[i].num_vertexes = model.meshes[i].num_vertexes;
         iqm_meshes[i].first_triangle = model.meshes[i].first_triangle;

@@ -99,11 +99,44 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
 
             Mesh m;
             m.name = mesh->name ? mesh->name : "mesh";
-            if (prim->material) {
-                m.material_name = prim->material->name ? prim->material->name : "material";
-            } else {
-                m.material_name = "default";
+
+            std::string mat_name = "default";
+            cgltf_material* cmat = prim->material;
+            if (cmat && cmat->name) mat_name = cmat->name;
+            else if (cmat) mat_name = "material_" + std::to_string(i);
+
+            int mat_idx = -1;
+            for (int m_idx = 0; m_idx < (int)out.materials.size(); ++m_idx) {
+                if (out.materials[m_idx].name == mat_name) {
+                    mat_idx = m_idx;
+                    break;
+                }
             }
+
+            if (mat_idx == -1) {
+                mat_idx = (int)out.materials.size();
+                Material mat;
+                mat.name = mat_name;
+                if (cmat) {
+                    if (cmat->has_pbr_metallic_roughness) {
+                        mat.material_type = 0;
+                        memcpy(mat.base_color, cmat->pbr_metallic_roughness.base_color_factor, 16);
+                        mat.metallic_factor = cmat->pbr_metallic_roughness.metallic_factor;
+                        mat.roughness_factor = cmat->pbr_metallic_roughness.roughness_factor;
+                        if (cmat->pbr_metallic_roughness.base_color_texture.texture && cmat->pbr_metallic_roughness.base_color_texture.texture->image) {
+                            if (cmat->pbr_metallic_roughness.base_color_texture.texture->image->uri)
+                                mat.color_map = cmat->pbr_metallic_roughness.base_color_texture.texture->image->uri;
+                        }
+                    }
+                    if (cmat->normal_texture.texture && cmat->normal_texture.texture->image) {
+                        if (cmat->normal_texture.texture->image->uri)
+                            mat.normal_map = cmat->normal_texture.texture->image->uri;
+                    }
+                    memcpy(mat.emissive_color, cmat->emissive_factor, 12);
+                }
+                out.materials.push_back(mat);
+            }
+            m.material_idx = mat_idx;
 
             m.first_vertex = (uint32_t)out.positions.size() / 3;
             m.first_triangle = (uint32_t)out.indices.size() / 3;

@@ -252,9 +252,14 @@ int main(int argc, char** argv) {
            model->num_meshes, model->num_joints, model->num_animations, total_keys);
 
     for (uint32_t i = 0; i < model->num_meshes; ++i) {
+        const char* mat_name = "none";
+        int midx = model->meshes[i].material_idx;
+        if (midx >= 0 && (uint32_t)midx < model->num_materials && model->materials[midx].name) {
+            mat_name = model->materials[midx].name;
+        }
         printf("  Mesh %u: \"%s\" Material: %s\n", i, 
                model->meshes[i].name ? model->meshes[i].name : "unnamed",
-               model->meshes[i].material_name ? model->meshes[i].material_name : "none");
+               mat_name);
     }
 
     // Write Phase

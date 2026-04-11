@@ -1,5 +1,4 @@
 #include "skp_loader.h"
-#include <iostream>
 #include <fstream>
 #include <vector>
 #include <cstring>
@@ -120,7 +119,6 @@ bool load_skm(const char* path, Model& out) {
     std::vector<AnimConfigEntry> entries;
     
     if (!cfg_path.empty()) {
-        std::cout << "Found animation config: " << cfg_path << std::endl;
         entries = parse_animation_cfg(cfg_path);
         for (const auto& entry : entries) {
             gs_legacy_framegroup fg;
@@ -205,7 +203,28 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
     for (uint32_t m = 0; m < skm_hdr->num_meshes; ++m) {
         Mesh& mesh = out.meshes[m];
         mesh.name = read_fixed_string(skm_meshes[m].meshname, SKM_MAX_NAME);
-        mesh.material_name = read_fixed_string(skm_meshes[m].shadername, SKM_MAX_NAME);
+        std::string shader_name = read_fixed_string(skm_meshes[m].shadername, SKM_MAX_NAME);
+        
+        int material_idx = -1;
+        for (int i = 0; i < (int)out.materials.size(); ++i) {
+            if (out.materials[i].name == shader_name) {
+                material_idx = i;
+                break;
+            }
+        }
+
+        if (material_idx == -1) {
+            material_idx = (int)out.materials.size();
+            Material mat;
+            mat.name = shader_name;
+            mat.color_map = shader_name;
+            mat.normal_map = "";
+            mat.roughness_map = "";
+            mat.occlusion_map = "";
+            out.materials.push_back(mat);
+        }
+        mesh.material_idx = material_idx;
+
         mesh.first_vertex = out.positions.size() / 3;
         mesh.num_vertexes = skm_meshes[m].num_verts;
         mesh.first_triangle = out.indices.size() / 3;
