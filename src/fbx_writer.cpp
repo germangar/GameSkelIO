@@ -1,5 +1,6 @@
 #include "fbx_writer.h"
 #include "fbx.hpp"
+#include "orientation.h"
 #include <map>
 #include <ctime>
 #include <algorithm>
@@ -23,7 +24,12 @@ static int64_t generate_id() {
     return ++last_id;
 }
 
-bool write_fbx(const char* path, const Model& in, bool write_mesh, bool write_anim, int anim_index) {
+bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool write_anim, int anim_index) {
+    Model model = model_in;
+    // Liberate FBX Writer: Automate conversion to Y-up CCW (Standard FBX)
+    convert_orientation(model, GS_Y_UP_RIGHTHANDED, GS_WINDING_CCW);
+    const Model& in = model; // Use the converted model for the rest of the export
+
     Fbx::Record file;
     
     // 1. Header Extension

@@ -4,17 +4,24 @@ GameSkelIO is a high-performance C-compatible library designed for **3D skeletal
 
 The library is designed with a **memory-first architecture**, allowing it to be easily integrated into game engine Virtual File Systems (VFS) without disk I/O overhead.
 
+## Core Architecture
+GameSkelIO has evolved from a single-standard library to a flexible, automated transcoding engine.
+
+- **Self-Describing Models**: The `gs_model` struct contains `orientation` and `winding` fields. Loaders populate these fields so every model is self-aware of its native coordinate system.
+- **"Liberated" Loaders**: Loaders (IQM, SKM, GLB, FBX) read data in its native format without forcing a conversion to a single internal standard.
+- **"Automated" Writers**: Writers automatically request the standard orientation for their target format (e.g., Y-Up for GLB, Z-Up for IQM) by performing a safe, in-place conversion on a local copy of the model before export.
+- **Transparent C API**: The public C functions work on temporary C++ copies, ensuring that the user's original `gs_model*` is never mutated by a write operation.
+
 ## Key Features
 
 - **Memory-First API**: Load and export models directly from/to memory buffers.
-- **Frame-Agnostic Core**: Internally operates on sparse, timestamp-based animation tracks (seconds), making it strictly format-neutral.
+- **Advanced Orientation API**: Perform in-place orientation and winding order swaps on loaded models.
+- **On-Demand Animation Baking**: Convert sparse, time-based animation tracks into dense, frame-based buffers for engines that require it.
 - **Format Support**:
-  - **IQM**: Full Read/Write (Z-up to Y-up conversion, CW to CCW winding).
-  - **GLB/glTF**: Full Read/Write (Native Y-up reference).
-  - **FBX (Binary)**: Full Read/Write (Uses high-performance `ufbx` backend).
+  - **IQM**: Full Read/Write (Automates conversion to its Z-Up, CW standard).
+  - **GLB/glTF**: Full Read/Write (Automates conversion to its Y-Up, CCW standard).
+  - **FBX (Binary)**: Full Read/Write (Automates conversion to its Y-Up, CCW standard).
   - **SKM/SKP**: Read-only support for legacy Warsow/Warfork formats.
-- **Legacy Engine Support**: Specific toggles for forcing single-animation stacks and automated metadata generation for `.cfg` files.
-- **Precision Baking**: Linear duration snapping ensures that sparse tracks are baked into dense frames (e.g., 30 FPS) with perfect alignment.
 
 ---
 
@@ -26,7 +33,7 @@ The project uses a standard Makefile. Running `make` in the root directory will 
 
 ```powershell
 make clean
-make
+make -j8
 ```
 
 *Note: Linking requires a C++ linker (e.g., g++) to resolve internal dependencies.*
@@ -35,8 +42,8 @@ make
 
 ## Library Usage (C Examples)
 
-### 1. Loading and Saving to Disk (Model Editor/Viewer)
-If you are building a 3D tool like a viewer or an editor, you can load models directly from disk into the `gs_model` representation, manipulate the data, and save it back to any supported format.
+### 1. Loading and Saving to Disk (Basic)
+This example shows a simple transcoding operation from a GLB file to an IQM file. The IQM writer will automatically handle the conversion from GLB's Y-Up space to IQM's Z-Up space.
 
 ```c
 #include "gameskelio.h"
@@ -46,58 +53,77 @@ If you are building a 3D tool like a viewer or an editor, you can load models di
 gs_model* model = gsk_load_glb("player_input.glb");
 
 if (model) {
-    // 2. Access and manipulate data directly
-    printf("Model loaded: %u vertices, %u joints\n", model->num_vertices, model->num_joints);
+    printf("Model loaded with orientation: %d
+", model->orientation);
 
-    // Derived data calculation
-    gsk_compute_bind_pose(model);
-    gsk_compute_bounds(model);
-
-    // 3. Save the model back to disk in a different format
-    // Parameters: path, model, force_single_anim
+    // 2. Save the model. The writer automatically handles the conversion.
     if (gsk_write_iqm("player_output.iqm", model, false)) {
-        printf("IQM saved successfully.\n");
+        printf("IQM saved successfully.
+");
     }
 
-    // 4. Cleanup
+    // 3. Cleanup
     gsk_free_model(model);
 }
 ```
 
-### 2. In-Memory Transcoding (Engine Integration)
-For high-performance engine integration, GameSkelIO can act as a buffer-to-buffer transcoder, allowing you to load assets from your engine's VFS and convert them without touching the disk.
+### 2. Advanced Feature: Manual Orientation Control
+You can manually convert a model's orientation in-place after loading it. This is useful for standardizing assets before they enter your engine's main pipeline.
 
 ```c
 #include "gameskelio.h"
 
-// 1. Load a model from a memory buffer (e.g., from a .pak or .pk3 file)
-size_t glb_size = /* size from VFS */;
-void* glb_data = /* pointer from VFS */;
-gs_model* model = gsk_load_glb_buffer(glb_data, glb_size);
+gs_model* model = gsk_load_fbx("character.fbx");
 
 if (model) {
-    // 2. Initialize derived data (Bounds, Bind Pose)
-    gsk_compute_bind_pose(model);
-    gsk_compute_bounds(model);
+    printf("Original orientation: %d
+", model->orientation);
 
-    // 3. Export to a memory-baked IQM buffer for the engine
-    size_t iqm_size = 0;
-    bool force_single = true; // Merge all frames into a single animation?
+    // Manually convert the model to Blender's standard Z-Up coordinate system
+    gsk_convert_orientation(model, GS_Z_UP_RIGHTHANDED, GS_WINDING_CW);
 
-    void* iqm_buffer = gsk_export_iqm_buffer(model, &iqm_size, force_single, NULL, NULL);
-
-    if (iqm_buffer) {
-        // Use 'iqm_buffer' with your engine's native IQM loader...
-
-        // 4. Cleanup
-        gsk_free_buffer(iqm_buffer);
-    }
+    printf("New orientation: %d
+", model->orientation);
+    
+    // Now you can proceed with this standardized model...
+    // gsk_write_glb("standardized_character.glb", model);
 
     gsk_free_model(model);
 }
 ```
 
+### 3. Advanced Feature: Baking Animations
+For engines that use frame-based animation systems, you can "bake" any sparse animation into a dense buffer of frame data.
 
+```c
+#include "gameskelio.h"
+
+gs_model* model = gsk_load_glb("animated_asset.glb");
+
+if (model && model->num_animations > 0) {
+    // Bake the first animation clip at 30 FPS
+    uint32_t anim_idx = 0;
+    float fps = 30.0f;
+    gs_baked_anim* baked_anim = gsk_bake_animation(model, anim_idx, fps);
+
+    if (baked_anim) {
+        printf("Animation baked successfully!
+");
+        printf("Frames: %u, Joints: %u, FPS: %.1f
+", baked_anim->num_frames, baked_anim->num_joints, baked_anim->fps);
+
+        // The data is a flat array of floats: [T.xyz, R.xyzw, S.xyz] per joint, per frame
+        // float* frame_data = baked_anim->data;
+        
+        // Use the baked data in your engine...
+
+        // IMPORTANT: The baked animation is a new allocation and must be freed
+        gsk_free_baked_anim(baked_anim);
+    }
+
+    gsk_free_model(model);
+}
+```
 
 ## The Converter Tool (`gskelconv`)
 
@@ -122,36 +148,10 @@ gskelconv <input.iqm/glb/skm/fbx> <output.iqm/glb/fbx> [flags]
 
 `gsrebind` is a specialized utility used to change a character's **Bind Pose** (Rest Pose) while ensuring all existing animations remain visually invariant. 
 
-It is commonly used to:
-- Convert a "T-Pose" model to an "A-Pose" standard.
-- "Freeze" a specific frame of an animation into the model's default resting shape.
-
 ### Usage
 ```bash
 gsrebind <input.glb/iqm/fbx> <anim_idx_or_name> <output.glb/iqm>
 ```
-
-### Requirements
-- **Static Target**: The target animation (specified by name or index) **must** be a static pose (a single frame or a constant pose). 
-- **Preservation**: The original bind pose is captured and added to the end of the animation list as `"original_bind"` for reference.
-
-### Example
-```bash
-./gsrebind player.glb "A-Pose" player_rebound.glb
-```
-
----
-
-## Technical Specifications
-
-To ensure consistency across all formats, GameSkelIO standardizes data into the following Intermediate Representation (IR):
-
-- **Coordinate System**: Y-Up, Right-Handed.
-- **Winding Order**: Counter-Clockwise (CCW).
-- **Rotations**: Quaternions (xyzw).
-- **Animations**: Sparse tracks with `double` precision timestamps.
-- **Joints**: Hierarchical parent-index system.
-- **Weights**: Normalized 4-bone per vertex influence.
 
 ---
 

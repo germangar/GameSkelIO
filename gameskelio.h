@@ -17,7 +17,7 @@
 #ifndef GAMESKELIO_H
 #define GAMESKELIO_H
 
-#define GAMESKELIO_VERSION 3
+#define GAMESKELIO_VERSION 4
 
 #include <stdint.h>
 #include <stdbool.h>
