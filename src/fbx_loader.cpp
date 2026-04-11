@@ -23,7 +23,7 @@ bool load_fbx(const char* path, Model& out) {
 bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
     ufbx_load_opts opts = { 0 };
     opts.target_unit_meters = 1.0f;
-    opts.target_axes = ufbx_axes_right_handed_y_up;
+    // We do NOT set target_axes here to let ufbx load the NATIVE coordinate system
     opts.allow_unsafe = true;
 
     ufbx_error error;
@@ -33,6 +33,22 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         std::cerr << "Failed to load FBX from memory: " << error.description.data << std::endl;
         return false;
     }
+
+    // Determine orientation from scene settings
+    ufbx_coordinate_axes axes = scene->settings.axes;
+    if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Y) {
+        if (axes.front == UFBX_COORDINATE_AXIS_NEGATIVE_Z) out.orientation = GS_Y_UP_RIGHTHANDED;
+        else out.orientation = GS_Y_UP_LEFTHANDED;
+    } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Z) {
+        if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Y) out.orientation = GS_Z_UP_RIGHTHANDED;
+        else out.orientation = GS_Z_UP_LEFTHANDED;
+    } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_X) {
+        if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Y) out.orientation = GS_X_UP_RIGHTHANDED;
+        else out.orientation = GS_X_UP_LEFTHANDED;
+    } else {
+        out.orientation = GS_Y_UP_RIGHTHANDED; // Fallback
+    }
+    out.winding = GS_WINDING_CCW; // FBX is CCW by convention
 
     // Phase 1 - Extract Skeleton (Full Hierarchy)
     // We add an explicit IDENTITY ROOT at index 0.
@@ -284,22 +300,6 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         out.animations.push_back(ad);
         ufbx_free_baked_anim(baked_anim);
     }
-
-    // Determine orientation from scene settings
-    ufbx_coordinate_axes axes = scene->settings.axes;
-    if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Y) {
-        if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Z) out.orientation = GS_Y_UP_RIGHTHANDED; // +Z front = -Z forward
-        else out.orientation = GS_Y_UP_LEFTHANDED;
-    } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Z) {
-        if (axes.right == UFBX_COORDINATE_AXIS_POSITIVE_X) out.orientation = GS_Z_UP_RIGHTHANDED;
-        else out.orientation = GS_Z_UP_LEFTHANDED;
-    } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_X) {
-        if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Z) out.orientation = GS_X_UP_RIGHTHANDED;
-        else out.orientation = GS_X_UP_LEFTHANDED;
-    } else {
-        out.orientation = GS_Y_UP_RIGHTHANDED; // Fallback
-    }
-    out.winding = GS_WINDING_CCW;
 
     ufbx_free_scene(scene);
     return true;

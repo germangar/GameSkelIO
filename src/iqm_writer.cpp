@@ -1,5 +1,5 @@
 #include "iqm_writer.h"
-#include <iostream>
+#include "orientation.h"
 #include <fstream>
 #include <vector>
 #include <cstring>
@@ -14,7 +14,7 @@ static uint32_t write_text(std::vector<char>& pool, const std::string& s) {
     return pos;
 }
 
-bool write_iqm(const Model& model, const char* output_path, bool force_single_anim) {
+bool write_iqm(Model& model, const char* output_path, bool force_single_anim) {
     std::vector<gs_legacy_framegroup> metadata;
     std::vector<uint8_t> buffer = write_iqm_to_memory(model, force_single_anim, &metadata);
     if (buffer.empty()) return false;
@@ -24,7 +24,7 @@ bool write_iqm(const Model& model, const char* output_path, bool force_single_an
     f.write((const char*)buffer.data(), buffer.size());
     f.close();
 
-    // 6. Write animation.cfg using the metadata we just calculated during baking
+    // Write animation.cfg using the metadata we just calculated during baking
     if (!metadata.empty()) {
         std::string cfg_path = output_path;
         size_t dot = cfg_path.find_last_of('.');
@@ -44,7 +44,11 @@ bool write_iqm(const Model& model, const char* output_path, bool force_single_an
     return true;
 }
 
-std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_anim, std::vector<gs_legacy_framegroup>* out_metadata) {
+std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, std::vector<gs_legacy_framegroup>* out_metadata) {
+    // 0. Automation: Convert orientation to Z-up, CW winding directly on the provided model
+    convert_orientation(model, GS_Z_UP_RIGHTHANDED, GS_WINDING_CW);
+    model.compute_bounds(); // Ensure bounds match new orientation
+
     std::vector<uint8_t> buffer;
     iqmheader hdr = {};
     memcpy(hdr.magic, IQM_MAGIC, 16);
@@ -53,41 +57,25 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
     std::vector<char> text;
     text.push_back('\0'); 
 
-    // 1. Prepare Joints (Convert glTF space to IQM space)
-    // Mapping: OldX = NewZ, OldY = NewX, OldZ = NewY -> (z, x, y)
+    // 1. Prepare Joints
     std::vector<iqmjoint> iqm_joints(model.joints.size());
-    float q_rot_inv[4] = {0.5f, 0.5f, 0.5f, 0.5f}; // 120deg inverse rotation
-    
     for (size_t i = 0; i < model.joints.size(); ++i) {
         iqm_joints[i].name = write_text(text, model.joints[i].name);
         iqm_joints[i].parent = model.joints[i].parent;
-        
-        float t[3]; memcpy(t, model.joints[i].translate, 12);
-        float r[4]; memcpy(r, model.joints[i].rotate, 16);
-        quat_normalize(r);
-        
-        if (model.joints[i].parent == -1) {
-            float t_zup[3] = {t[2], t[0], t[1]};
-            memcpy(t, t_zup, 12);
-            float r_new[4];
-            quat_mul(q_rot_inv, r, r_new);
-            quat_normalize(r_new);
-            memcpy(r, r_new, 16);
-        }
-        
-        memcpy(iqm_joints[i].translate, t, 12);
-        memcpy(iqm_joints[i].rotate, r, 16);
+        memcpy(iqm_joints[i].translate, model.joints[i].translate, 12);
+        memcpy(iqm_joints[i].rotate, model.joints[i].rotate, 16);
         memcpy(iqm_joints[i].scale, model.joints[i].scale, 12);
     }
-
+    
     // 2. Prepare Meshes
     std::vector<iqmmesh> iqm_meshes(model.meshes.size());
     for (size_t i = 0; i < model.meshes.size(); ++i) {
         iqm_meshes[i].name = write_text(text, model.meshes[i].name);
 
-        std::string mat_name = "";
-        if (model.meshes[i].material_idx >= 0 && model.meshes[i].material_idx < (int)model.materials.size()) {
-            mat_name = model.materials[model.meshes[i].material_idx].name;
+        std::string mat_name = "default";
+        int midx = model.meshes[i].material_idx;
+        if (midx >= 0 && midx < (int)model.materials.size()) {
+            mat_name = model.materials[midx].name;
         }
 
         iqm_meshes[i].material = write_text(text, mat_name);
@@ -97,21 +85,22 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
         iqm_meshes[i].num_triangles = model.meshes[i].num_triangles;
     }
 
-    // 3. Prepare Animations
+    // 3. Prepare Animations with Duration Snapping
     std::vector<iqmanim> iqm_anims;
     uint32_t total_iqm_frames = 0;
 
     std::vector<uint32_t> clip_frame_counts;
-    for (const auto& ad : model.animations) {
-        double clip_duration = 0;
-        for (const auto& ba : ad.bones) {
-            if (!ba.translation.times.empty()) clip_duration = std::max(clip_duration, ba.translation.times.back());
-            if (!ba.rotation.times.empty()) clip_duration = std::max(clip_duration, ba.rotation.times.back());
-            if (!ba.scale.times.empty()) clip_duration = std::max(clip_duration, ba.scale.times.back());
-        }
+    std::vector<double> snapped_durations;
+    for (size_t i = 0; i < model.animations.size(); ++i) {
+        const auto& ad = model.animations[i];
+        double clip_duration = ad.duration;
+
         uint32_t nf = (uint32_t)std::round(clip_duration * BASE_FPS) + 1;
-        if (nf == 1 && clip_duration == 0) nf = 1;
+        if (nf < 1) nf = 1;
+        double snapped_duration = (nf > 1) ? (double)(nf - 1) / (double)BASE_FPS : 0.0;
+        
         clip_frame_counts.push_back(nf);
+        snapped_durations.push_back(snapped_duration);
         total_iqm_frames += nf;
     }
 
@@ -167,42 +156,26 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
 
     std::vector<unsigned short> out_frames;
     if (total_iqm_frames > 0) {
-        std::vector<float> zup_frames(total_iqm_frames * model.joints.size() * 10);
+        std::vector<float> baked_frames(total_iqm_frames * model.joints.size() * 10);
         std::vector<Pose> evaluated_poses;
 
         uint32_t f_offset = 0;
         for (size_t ai = 0; ai < model.animations.size(); ++ai) {
-            const AnimationDef& ad = model.animations[ai];
             uint32_t nf = clip_frame_counts[ai];
-
-            double clip_duration = 0;
-            for (const auto& ba : ad.bones) {
-                if (!ba.translation.times.empty()) clip_duration = std::max(clip_duration, ba.translation.times.back());
-                if (!ba.rotation.times.empty()) clip_duration = std::max(clip_duration, ba.rotation.times.back());
-                if (!ba.scale.times.empty()) clip_duration = std::max(clip_duration, ba.scale.times.back());
-            }
+            double snapped_duration = snapped_durations[ai];
 
             for (uint32_t f = 0; f < nf; ++f) {
-                double time = (nf > 1) ? (double)f * (clip_duration / (double)(nf - 1)) : 0.0;
+                // Use snapped duration for sampling time
+                double time = (nf > 1) ? (double)f * (snapped_duration / (double)(nf - 1)) : 0.0;
                 model.evaluate_animation((int)ai, time, evaluated_poses);
 
                 for (size_t ji = 0; ji < model.joints.size(); ++ji) {
-                    float* fout = &zup_frames[(f_offset + f) * model.joints.size() * 10 + ji * 10];
+                    float* fout = &baked_frames[(f_offset + f) * model.joints.size() * 10 + ji * 10];
                     const Pose& p = evaluated_poses[ji];
                     float vals[10];
-                    memcpy(vals, p.translate, 12);
+                    memcpy(&vals[0], p.translate, 12);
                     memcpy(&vals[3], p.rotate, 16);
                     memcpy(&vals[7], p.scale, 12);
-
-                    if (model.joints[ji].parent == -1) {
-                        float tx = vals[0], ty = vals[1], tz = vals[2];
-                        vals[0] = tz; vals[1] = tx; vals[2] = ty;
-                        float r_val[4] = {vals[3], vals[4], vals[5], vals[6]};
-                        float r_new[4];
-                        quat_mul(q_rot_inv, r_val, r_new);
-                        quat_normalize(r_new);
-                        vals[3] = r_new[0]; vals[4] = r_new[1]; vals[5] = r_new[2]; vals[6] = r_new[3];
-                    }
                     memcpy(fout, vals, 40);
                 }
             }
@@ -212,7 +185,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
         struct ChanStat { float min = 1e30f, max = -1e30f; };
         std::vector<std::vector<ChanStat>> stats(model.joints.size(), std::vector<ChanStat>(10));
         for (uint32_t f_idx = 0; f_idx < total_iqm_frames; ++f_idx) {
-            const float* fptr = &zup_frames[f_idx * model.joints.size() * 10];
+            const float* fptr = &baked_frames[f_idx * model.joints.size() * 10];
             for (size_t p = 0; p < model.joints.size(); ++p) {
                 for (int c = 0; c < 10; ++c) {
                     float val = fptr[p * 10 + c];
@@ -234,7 +207,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
         for (uint32_t f_idx = 0; f_idx < total_iqm_frames; ++f_idx) {
             for (size_t p = 0; p < model.joints.size(); ++p) {
                 for (int c = 0; c < 10; ++c) {
-                    float val = zup_frames[f_idx * model.joints.size() * 10 + p * 10 + c];
+                    float val = baked_frames[f_idx * model.joints.size() * 10 + p * 10 + c];
                     float off = iqm_poses[p].channeloffset[c];
                     float scl = iqm_poses[p].channelscale[c];
                     if (scl > 0) out_frames[f_idx * model.joints.size() * 10 + p * 10 + c] = (unsigned short)((val - off) / scl + 0.5f);
@@ -270,22 +243,10 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
         va.push_back({type, 0, format, size, off});
     };
 
-    std::vector<float> zup_positions(model.positions.size());
-    for(size_t i=0; i<model.positions.size()/3; ++i) {
-        zup_positions[i*3+0] = model.positions[i*3+2];
-        zup_positions[i*3+1] = model.positions[i*3+0];
-        zup_positions[i*3+2] = model.positions[i*3+1];
-    }
-    std::vector<float> zup_normals(model.normals.size());
-    for(size_t i=0; i<model.normals.size()/3; ++i) {
-        zup_normals[i*3+0] = model.normals[i*3+2];
-        zup_normals[i*3+1] = model.normals[i*3+0];
-        zup_normals[i*3+2] = model.normals[i*3+1];
-    }
-
-    add_va(IQM_POSITION, IQM_FLOAT, 3, zup_positions.data(), zup_positions.size() * 4);
+    // Positions and normals are already converted to Z-up
+    add_va(IQM_POSITION, IQM_FLOAT, 3, model.positions.data(), model.positions.size() * 4);
     add_va(IQM_TEXCOORD, IQM_FLOAT, 2, model.texcoords.data(), model.texcoords.size() * 4);
-    add_va(IQM_NORMAL,   IQM_FLOAT, 3, zup_normals.data(), zup_normals.size() * 4);
+    add_va(IQM_NORMAL,   IQM_FLOAT, 3, model.normals.data(), model.normals.size() * 4);
     add_va(IQM_BLENDINDICES, IQM_UBYTE, 4, model.joints_0.data(), model.joints_0.size());
     std::vector<uint8_t> w8(model.weights_0.size());
     for(size_t i=0; i<w8.size(); ++i) w8[i] = (uint8_t)(model.weights_0[i] * 255.0f + 0.5f);
@@ -295,14 +256,9 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
     hdr.ofs_vertexarrays = append_data(va.data(), va.size() * sizeof(iqmvertexarray));
     hdr.num_vertexes = (uint32_t)model.positions.size() / 3;
 
-    std::vector<uint32_t> iqm_indices(model.indices.size());
-    for (uint32_t i = 0; i < model.indices.size() / 3; ++i) {
-        iqm_indices[i * 3 + 0] = model.indices[i * 3 + 0];
-        iqm_indices[i * 3 + 1] = model.indices[i * 3 + 2];
-        iqm_indices[i * 3 + 2] = model.indices[i * 3 + 1];
-    }
-    hdr.num_triangles = (uint32_t)iqm_indices.size() / 3;
-    hdr.ofs_triangles = append_data(iqm_indices.data(), iqm_indices.size() * 4);
+    // Indices are already converted to CW winding
+    hdr.num_triangles = (uint32_t)model.indices.size() / 3;
+    hdr.ofs_triangles = append_data(model.indices.data(), model.indices.size() * 4);
 
     hdr.num_joints = (uint32_t)iqm_joints.size();
     hdr.ofs_joints = append_data(iqm_joints.data(), iqm_joints.size() * sizeof(iqmjoint));
@@ -321,9 +277,10 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model, bool force_single_a
         uint32_t nb = std::max(1u, total_iqm_frames);
         std::vector<iqmbounds> b(nb);
         for(auto& bi : b) {
-            bi.bbmin[0] = model.mins[2]; bi.bbmin[1] = model.mins[0]; bi.bbmin[2] = model.mins[1];
-            bi.bbmax[0] = model.maxs[2]; bi.bbmax[1] = model.maxs[0]; bi.bbmax[2] = model.maxs[1];
-            bi.xyradius = model.xyradius; bi.radius = model.radius;
+            memcpy(bi.bbmin, model.mins, 12);
+            memcpy(bi.bbmax, model.maxs, 12);
+            bi.xyradius = model.xyradius; 
+            bi.radius = model.radius;
         }
         hdr.ofs_bounds = append_data(b.data(), b.size() * sizeof(iqmbounds));
     }

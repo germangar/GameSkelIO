@@ -1,0 +1,25 @@
+# GLB Loader Differences (Other Branch Enhancements)
+
+The following features were found in the GLB loader of 'the other branch' but are NOT being implemented right now to preserve compatibility with Microsoft 3D Viewer and keep the 'liberation' step clean:
+
+1. Phase 0: Embedded Texture Extraction
+   - Logic to extract raw image data from GLB buffer views into out.textures.
+   - URIs like "embedded_0" were used to link materials to these buffers.
+
+2. Centralized Material Loading Loop
+   - A pre-mesh loop that creates all materials first.
+   - Complex logic for PBR vs Specular/Glossiness vs Unlit materials.
+   - Emissive strength extensions.
+
+3. Morph Targets (Blend Shapes)
+   - Reading 'cgltf_morph_target' attributes (Position/Normal deltas).
+   - Transforming deltas to world space during load.
+
+4. Animation Weights
+   - Reading 'cgltf_animation_path_type_weights' to animate morph targets.
+
+5. Mesh World Matrix Baking
+   - Pre-calculating world matrices for nodes containing meshes to bake their static transform into the vertex data.
+
+Current Status:
+We are only implementing the 'material_idx' bridge and 'Self-Identification' (Y-up CCW).

@@ -3,6 +3,8 @@
 #include <fstream>
 #include <cstring>
 #include <vector>
+#include <map>
+#include <algorithm>
 #include "anim_cfg.h"
 
 bool load_iqm(const char* path, Model& out) {
@@ -56,24 +58,8 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
             out.joints[i].name = text_pool + iqm_joints[i].name;
             out.joints[i].parent = iqm_joints[i].parent;
 
-            float t[3]; memcpy(t, iqm_joints[i].translate, 12);
-            float r[4]; memcpy(r, iqm_joints[i].rotate, 16);
-
-            if (out.joints[i].parent == -1) {
-                // Root Translation: (x, y, z) -> (y, z, x)
-                float t_yup[3] = {t[1], t[2], t[0]};
-                memcpy(t, t_yup, 12);
-
-                // Root Rotation: 120deg rotation around (1,1,1) to map X->Z, Y->X, Z->Y
-                float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};
-                float r_new[4];
-                quat_mul(q_rot, r, r_new);
-                quat_normalize(r_new);
-                memcpy(r, r_new, 16);
-            }
-
-            memcpy(out.joints[i].translate, t, 12);
-            memcpy(out.joints[i].rotate, r, 16);
+            memcpy(out.joints[i].translate, iqm_joints[i].translate, 12);
+            memcpy(out.joints[i].rotate, iqm_joints[i].rotate, 16);
             memcpy(out.joints[i].scale, iqm_joints[i].scale, 12);
         }
         // Compute and store IBMs as the "source of truth" for the mesh
@@ -119,20 +105,17 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
         const char* src = buffer + va[i].offset;
         if (va[i].type == IQM_POSITION && va[i].format == IQM_FLOAT && va[i].size == 3) {
             out.positions.resize(hdr->num_vertexes * 3);
-            const float* p_src = (const float*)src;
-            for (uint32_t v = 0; v < hdr->num_vertexes; ++v) {
-                out.positions[v*3+0] = p_src[v*3+1];
-                out.positions[v*3+1] = p_src[v*3+2];
-                out.positions[v*3+2] = p_src[v*3+0];
-            }
+            memcpy(out.positions.data(), src, hdr->num_vertexes * 3 * sizeof(float));
         } else if (va[i].type == IQM_NORMAL && va[i].format == IQM_FLOAT && va[i].size == 3) {
             out.normals.resize(hdr->num_vertexes * 3);
-            const float* n_src = (const float*)src;
-            for (uint32_t v = 0; v < hdr->num_vertexes; ++v) {
-                out.normals[v*3+0] = n_src[v*3+1];
-                out.normals[v*3+1] = n_src[v*3+2];
-                out.normals[v*3+2] = n_src[v*3+0];
-            }
+            memcpy(out.normals.data(), src, hdr->num_vertexes * 3 * sizeof(float));
+        } else if (va[i].type == IQM_TANGENT && va[i].format == IQM_FLOAT && va[i].size == 4) {
+            out.tangents.resize(hdr->num_vertexes * 4);
+            memcpy(out.tangents.data(), src, hdr->num_vertexes * 4 * sizeof(float));
+        } else if (va[i].type == IQM_COLOR && va[i].format == IQM_UBYTE && va[i].size == 4) {
+            out.colors.resize(hdr->num_vertexes * 4);
+            const uint8_t* c_src = (const uint8_t*)src;
+            for (uint32_t v = 0; v < hdr->num_vertexes * 4; ++v) out.colors[v] = c_src[v] / 255.0f;
         } else if (va[i].type == IQM_TEXCOORD && va[i].format == IQM_FLOAT && va[i].size == 2) {
             out.texcoords.resize(hdr->num_vertexes * 2);
             memcpy(out.texcoords.data(), src, hdr->num_vertexes * 2 * sizeof(float));
@@ -154,11 +137,7 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
     out.indices.resize(hdr->num_triangles * 3);
     if (hdr->num_triangles > 0) {
         const uint32_t* iqm_indices = (const uint32_t*)(buffer + hdr->ofs_triangles);
-        for (uint32_t i = 0; i < hdr->num_triangles; ++i) {
-            out.indices[i * 3 + 0] = iqm_indices[i * 3 + 0];
-            out.indices[i * 3 + 1] = iqm_indices[i * 3 + 2];
-            out.indices[i * 3 + 2] = iqm_indices[i * 3 + 1];
-        }
+        memcpy(out.indices.data(), iqm_indices, hdr->num_triangles * 3 * sizeof(uint32_t));
     }
 
     // Animations (Unpack into sparse tracks)
@@ -185,17 +164,6 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
                     vals[c] = op.channeloffset[c];
                     if (op.mask & (1 << c)) vals[c] += fin[ch_idx++] * op.channelscale[c];
                 }
-
-                if (out.joints[p].parent == -1) {
-                    float tx = vals[0], ty = vals[1], tz = vals[2];
-                    vals[0] = ty; vals[1] = tz; vals[2] = tx;
-                    float r[4] = {vals[3], vals[4], vals[5], vals[6]};
-                    float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};
-                    float r_new[4];
-                    quat_mul(q_rot, r, r_new);
-                    quat_normalize(r_new);
-                    memcpy(&vals[3], r_new, 16);
-                }
                 memcpy(fout + p * 10, vals, 40);
             }
         }
@@ -205,23 +173,16 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
         std::vector<TempAnim> anims;
 
         if (external_anims && num_external_anims > 0) {
-            // Cap at 1024 to prevent abuse
             uint32_t n = (num_external_anims > 1024) ? 1024 : num_external_anims;
             for (uint32_t i = 0; i < n; ++i) {
-                // Validation Pass
                 int first = external_anims[i].first_frame;
                 int count = external_anims[i].num_frames;
-                
-                // Reject if starting out of bounds
                 if (first >= (int)hdr->num_frames) continue;
                 if (first < 0) first = 0;
-                
-                // Clamp count
                 if (first + count > (int)hdr->num_frames) {
                     count = (int)hdr->num_frames - first;
                 }
                 if (count <= 0) continue;
-
                 anims.push_back({ external_anims[i].name ? external_anims[i].name : "unnamed", first, count, external_anims[i].fps });
             }
         } else if (hdr->num_anims > 0) {
@@ -265,8 +226,8 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
         }
     }
 
-    out.orientation = GS_Y_UP_RIGHTHANDED;
-    out.winding = GS_WINDING_CCW;
+    out.orientation = GS_Z_UP_RIGHTHANDED_Q;
+    out.winding = GS_WINDING_CW;
 
     return true;
 }

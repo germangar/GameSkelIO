@@ -1,9 +1,11 @@
 #include "skp_loader.h"
+#include <iostream>
 #include <fstream>
 #include <vector>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <map>
 #include "anim_cfg.h"
 
 #define SKMHEADER                               "SKM1"
@@ -73,13 +75,13 @@ static void transform_vec(const mat4& m, const float* in, float* out, float weig
     out[2] += (m.m[2] * in[0] + m.m[6] * in[1] + m.m[10] * in[2] + m.m[14] * weight);
 }
 
-static void rotate_vec(const mat4& m, const float* in, float* out) {     
-    out[0] += (m.m[0] * in[0] + m.m[4] * in[1] + m.m[8] * in[2]);        
-    out[1] += (m.m[1] * in[0] + m.m[5] * in[1] + m.m[9] * in[2]);        
-    out[2] += (m.m[2] * in[0] + m.m[6] * in[1] + m.m[10] * in[2]);       
+static void rotate_vec(const mat4& m, const float* in, float* out) {
+    out[0] += (m.m[0] * in[0] + m.m[4] * in[1] + m.m[8] * in[2]);
+    out[1] += (m.m[1] * in[0] + m.m[5] * in[1] + m.m[9] * in[2]);
+    out[2] += (m.m[2] * in[0] + m.m[6] * in[1] + m.m[10] * in[2]);
 }
 
-static std::string read_fixed_string(const char* s, size_t max_len) {
+static std::string read_fixed_string(const char* s, size_t max_len) {        
     size_t len = 0;
     while (len < max_len && s[len] != '\0') len++;
     return std::string(s, len);
@@ -142,20 +144,23 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
     const char* skm_buf = (const char*)skm_data;
 
     dskpheader_t* skp_hdr = (dskpheader_t*)skp_buf;
-    if (std::memcmp(skp_hdr->id, "SKM1", 4) != 0) return false;
+    if (std::memcmp(skp_hdr->id, "SKP1", 4) != 0 && std::memcmp(skp_hdr->id, "SKM1", 4) != 0) {
+        printf("SKM Load Error: SKP magic mismatch: %.4s\n", skp_hdr->id);   
+        return false;
+    }
 
     uint32_t num_bones = skp_hdr->num_bones;
     uint32_t num_frames = skp_hdr->num_frames;
 
     out.joints.resize(num_bones);
-    dskpbone_t* skp_bones = (dskpbone_t*)(skp_buf + skp_hdr->ofs_bones);
+    dskpbone_t* skp_bones = (dskpbone_t*)(skp_buf + skp_hdr->ofs_bones);     
     for (uint32_t i = 0; i < num_bones; ++i) {
         out.joints[i].name = read_fixed_string(skp_bones[i].name, SKM_MAX_NAME);
         out.joints[i].parent = skp_bones[i].parent;
     }
 
     std::vector<std::vector<dskpbonepose_t>> frame_poses(num_frames, std::vector<dskpbonepose_t>(num_bones));
-    dskpframe_t* skp_frames = (dskpframe_t*)(skp_buf + skp_hdr->ofs_frames);
+    dskpframe_t* skp_frames = (dskpframe_t*)(skp_buf + skp_hdr->ofs_frames); 
     for (uint32_t f = 0; f < num_frames; ++f) {
         dskpbonepose_t* poses = (dskpbonepose_t*)(skp_buf + skp_frames[f].ofs_bonepositions);
         std::memcpy(frame_poses[f].data(), poses, num_bones * sizeof(dskpbonepose_t));
@@ -173,18 +178,12 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
     }
 
     for (uint32_t i = 0; i < num_bones; ++i) {
-        float t[3]; std::memcpy(t, frame_poses[0][i].origin, 12);        
+        float t[3]; std::memcpy(t, frame_poses[0][i].origin, 12);
         float r[4]; std::memcpy(r, frame_poses[0][i].quat, 16);
         float s[3] = {1, 1, 1};
 
         if (out.joints[i].parent == -1) {
-            float t_yup[3] = {t[1], t[2], t[0]};
-            std::memcpy(t, t_yup, 12);
-            float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};      
-            float r_new[4];
-            quat_mul(q_rot, r, r_new);
-            quat_normalize(r_new);
-            std::memcpy(r, r_new, 16);
+            quat_normalize(r);
         }
         std::memcpy(out.joints[i].translate, t, 12);
         std::memcpy(out.joints[i].rotate, r, 16);
@@ -195,45 +194,52 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
     out.ibms = out.computed_ibms;
 
     dskmheader_t* skm_hdr = (dskmheader_t*)skm_buf;
-    if (std::memcmp(skm_hdr->id, "SKM1", 4) != 0) return false;
+    if (std::memcmp(skm_hdr->id, "SKM1", 4) != 0) {
+        printf("SKM Load Error: SKM magic mismatch: %.4s\n", skm_hdr->id);   
+        return false;
+    }
 
-    dskmmesh_t* skm_meshes = (dskmmesh_t*)(skm_buf + skm_hdr->ofs_meshes);
+    dskmmesh_t* skm_meshes = (dskmmesh_t*)(skm_buf + skm_hdr->ofs_meshes);   
     out.meshes.resize(skm_hdr->num_meshes);
+    std::map<std::string, int> mat_name_to_idx;
 
     for (uint32_t m = 0; m < skm_hdr->num_meshes; ++m) {
         Mesh& mesh = out.meshes[m];
-        mesh.name = read_fixed_string(skm_meshes[m].meshname, SKM_MAX_NAME);
-        std::string shader_name = read_fixed_string(skm_meshes[m].shadername, SKM_MAX_NAME);
-        
-        int material_idx = -1;
-        for (int i = 0; i < (int)out.materials.size(); ++i) {
-            if (out.materials[i].name == shader_name) {
-                material_idx = i;
-                break;
-            }
-        }
+        mesh.name = read_fixed_string(skm_meshes[m].meshname, SKM_MAX_NAME); 
+        std::string mat_name = read_fixed_string(skm_meshes[m].shadername, SKM_MAX_NAME);
 
-        if (material_idx == -1) {
-            material_idx = (int)out.materials.size();
+        if (mat_name_to_idx.find(mat_name) == mat_name_to_idx.end()) {       
             Material mat;
-            mat.name = shader_name;
-            mat.color_map = shader_name;
-            mat.normal_map = "";
-            mat.roughness_map = "";
-            mat.occlusion_map = "";
+            mat.name = mat_name;
+            mat.material_type = 1; // Legacy
+
+            // Convention: Ensure extension, add suffixes for norm/gloss     
+            std::string base_tex = mat_name;
+            std::string ext = ".tga";
+            size_t last_dot = base_tex.find_last_of('.');
+            if (last_dot != std::string::npos) {
+                ext = base_tex.substr(last_dot);
+                base_tex = base_tex.substr(0, last_dot);
+            }
+
+            mat.color_map = base_tex + ext;
+            mat.normal_map = base_tex + "_norm" + ext;
+            mat.specular_map = base_tex + "_gloss" + ext;
+
+            mat_name_to_idx[mat_name] = (int)out.materials.size();
             out.materials.push_back(mat);
         }
-        mesh.material_idx = material_idx;
 
+        mesh.material_idx = mat_name_to_idx[mat_name];
         mesh.first_vertex = out.positions.size() / 3;
         mesh.num_vertexes = skm_meshes[m].num_verts;
         mesh.first_triangle = out.indices.size() / 3;
         mesh.num_triangles = skm_meshes[m].num_tris;
 
-        out.positions.resize((mesh.first_vertex + mesh.num_vertexes) * 3);
-        out.normals.resize((mesh.first_vertex + mesh.num_vertexes) * 3); 
-        out.texcoords.resize((mesh.first_vertex + mesh.num_vertexes) * 2);
-        out.joints_0.resize((mesh.first_vertex + mesh.num_vertexes) * 4, 0);
+        out.positions.resize((mesh.first_vertex + mesh.num_vertexes) * 3);   
+        out.normals.resize((mesh.first_vertex + mesh.num_vertexes) * 3);     
+        out.texcoords.resize((mesh.first_vertex + mesh.num_vertexes) * 2);   
+        out.joints_0.resize((mesh.first_vertex + mesh.num_vertexes) * 4, 0); 
         out.weights_0.resize((mesh.first_vertex + mesh.num_vertexes) * 4, 0.0f);
 
         unsigned char* v_ptr = (unsigned char*)skm_buf + skm_meshes[m].ofs_verts;
@@ -261,7 +267,7 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
             });
 
             float total_weight = 0;
-            int n_infl = std::min((int)sorted_influences.size(), 4);     
+            int n_infl = std::min((int)sorted_influences.size(), 4);
             for (int i = 0; i < n_infl; ++i) total_weight += sorted_influences[i].weight;
 
             for (int i = 0; i < n_infl; ++i) {
@@ -269,37 +275,37 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
                 out.weights_0[(mesh.first_vertex + v) * 4 + i] = (total_weight > 0) ? (sorted_influences[i].weight / total_weight) : 0;
             }
 
-            out.positions[(mesh.first_vertex + v) * 3 + 0] = zup_pos[1]; 
-            out.positions[(mesh.first_vertex + v) * 3 + 1] = zup_pos[2]; 
-            out.positions[(mesh.first_vertex + v) * 3 + 2] = zup_pos[0];
+            out.positions[(mesh.first_vertex + v) * 3 + 0] = zup_pos[0];     
+            out.positions[(mesh.first_vertex + v) * 3 + 1] = zup_pos[1];     
+            out.positions[(mesh.first_vertex + v) * 3 + 2] = zup_pos[2];     
 
             float norm_len = std::sqrt(zup_norm[0]*zup_norm[0] + zup_norm[1]*zup_norm[1] + zup_norm[2]*zup_norm[2]);
             if (norm_len > 1e-6f) {
                 float inv_len = 1.0f / norm_len;
                 zup_norm[0] *= inv_len; zup_norm[1] *= inv_len; zup_norm[2] *= inv_len;
             }
-            out.normals[(mesh.first_vertex + v) * 3 + 0] = zup_norm[1];  
-            out.normals[(mesh.first_vertex + v) * 3 + 1] = zup_norm[2];  
-            out.normals[(mesh.first_vertex + v) * 3 + 2] = zup_norm[0]; 
+            out.normals[(mesh.first_vertex + v) * 3 + 0] = zup_norm[0];      
+            out.normals[(mesh.first_vertex + v) * 3 + 1] = zup_norm[1];      
+            out.normals[(mesh.first_vertex + v) * 3 + 2] = zup_norm[2];      
         }
 
         dskmcoord_t* st = (dskmcoord_t*)(skm_buf + skm_meshes[m].ofs_texcoords);
         for (uint32_t v = 0; v < mesh.num_vertexes; ++v) {
-            out.texcoords[(mesh.first_vertex + v) * 2 + 0] = st[v].st[0];
-            out.texcoords[(mesh.first_vertex + v) * 2 + 1] = st[v].st[1];
+            out.texcoords[(mesh.first_vertex + v) * 2 + 0] = st[v].st[0];    
+            out.texcoords[(mesh.first_vertex + v) * 2 + 1] = st[v].st[1];    
         }
 
         unsigned int* idx = (unsigned int*)(skm_buf + skm_meshes[m].ofs_indices);
         for (uint32_t t = 0; t < mesh.num_triangles; ++t) {
-            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 0]);   
-            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 2]);
-            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 1]);
+            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 0]);       
+            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 1]);       
+            out.indices.push_back(mesh.first_vertex + idx[t * 3 + 2]);       
         }
     }
 
     // Frames
     if (num_frames > 0) {
-        struct TempAnim { std::string name; int first, count; float fps; };
+        struct TempAnim { std::string name; int first, count; float fps; };  
         std::vector<TempAnim> anims;
 
         if (external_anims && num_external_anims > 0) {
@@ -324,9 +330,9 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
             ad.name = a.name;
             ad.duration = (a.count > 0) ? (double)(a.count - 1) / a.fps : 0.0;
             ad.bones.resize(num_bones);
-            for (int f = a.first; f < a.first + a.count; ++f) {      
+            for (int f = a.first; f < a.first + a.count; ++f) {
                 if (f < 0 || f >= (int)num_frames) continue;
-                double time = (double)(f - a.first) / a.fps;     
+                double time = (double)(f - a.first) / a.fps;
 
                 for (uint32_t p = 0; p < num_bones; ++p) {
                     BoneAnim& ba = ad.bones[p];
@@ -334,13 +340,7 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
                     float r[4]; std::memcpy(r, frame_poses[f][p].quat, 16);  
 
                     if (out.joints[p].parent == -1) {
-                        float tx = t[0], ty = t[1], tz = t[2];
-                        t[0] = ty; t[1] = tz; t[2] = tx;
-                        float q_rot[4] = {-0.5f, -0.5f, -0.5f, 0.5f};
-                        float r_new[4];
-                        quat_mul(q_rot, r, r_new);
-                        quat_normalize(r_new);
-                        std::memcpy(r, r_new, 16);
+                        quat_normalize(r);
                     }
 
                     ba.translation.times.push_back(time);
@@ -362,8 +362,7 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
         }
     }
 
-    out.orientation = GS_Y_UP_RIGHTHANDED;
-    out.winding = GS_WINDING_CCW;
-
+    out.orientation = GS_Z_UP_RIGHTHANDED_Q;
+    out.winding = GS_WINDING_CW;
     return true;
 }

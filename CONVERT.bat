@@ -45,11 +45,11 @@ echo To %TYPE2%:     %OUT2%
 echo.
 
 echo.
-"%~dp0gskelconv.exe" "%INPUT%" "%OUT1%" --qfusion
+"%~dp0gskelconv.exe" "%INPUT%" "%OUT1%"
 set ERR1=!ERRORLEVEL!
 
 echo.
-"%~dp0gskelconv.exe" "%INPUT%" "%OUT2%" --qfusion
+"%~dp0gskelconv.exe" "%INPUT%" "%OUT2%"
 set ERR2=!ERRORLEVEL!
 
 echo.

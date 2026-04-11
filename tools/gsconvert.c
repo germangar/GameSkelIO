@@ -160,12 +160,15 @@ int main(int argc, char** argv) {
                 sys_str = argv[++i];
                 wind_str = argv[++i];
 
-                if (strcasecmp_local(sys_str, "y-up-rh") == 0) target_sys = GS_Y_UP_RIGHTHANDED;
-                else if (strcasecmp_local(sys_str, "y-up-lh") == 0) target_sys = GS_Y_UP_LEFTHANDED;
-                else if (strcasecmp_local(sys_str, "z-up-rh") == 0) target_sys = GS_Z_UP_RIGHTHANDED;
-                else if (strcasecmp_local(sys_str, "z-up-lh") == 0) target_sys = GS_Z_UP_LEFTHANDED;
-                else if (strcasecmp_local(sys_str, "x-up-rh") == 0) target_sys = GS_X_UP_RIGHTHANDED;
-                else if (strcasecmp_local(sys_str, "x-up-lh") == 0) target_sys = GS_X_UP_LEFTHANDED;
+                if (strcasecmp(sys_str, "y-up-rh") == 0) target_sys = GS_Y_UP_RIGHTHANDED;
+                else if (strcasecmp(sys_str, "y-up-lh") == 0) target_sys = GS_Y_UP_LEFTHANDED;
+                else if (strcasecmp(sys_str, "z-up-blender") == 0) target_sys = GS_Z_UP_RIGHTHANDED;
+                else if (strcasecmp(sys_str, "z-up-rh") == 0) target_sys = GS_Z_UP_RIGHTHANDED;
+                else if (strcasecmp(sys_str, "z-up-quake") == 0) target_sys = GS_Z_UP_RIGHTHANDED_Q;
+                else if (strcasecmp(sys_str, "z-up-lh") == 0) target_sys = GS_Z_UP_LEFTHANDED;
+                else if (strcasecmp(sys_str, "x-up-rh") == 0) target_sys = GS_X_UP_RIGHTHANDED;
+                else if (strcasecmp(sys_str, "x-up-lh") == 0) target_sys = GS_X_UP_LEFTHANDED;
+
                 else {
                     fprintf(stderr, "Unknown coordinate system: %s\n", sys_str);
                     return 1;
