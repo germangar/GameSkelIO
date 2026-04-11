@@ -163,6 +163,7 @@ int main(int argc, char** argv) {
                 if (strcasecmp(sys_str, "y-up-rh") == 0) target_sys = GS_Y_UP_RIGHTHANDED;
                 else if (strcasecmp(sys_str, "y-up-lh") == 0) target_sys = GS_Y_UP_LEFTHANDED;
                 else if (strcasecmp(sys_str, "z-up-rh") == 0) target_sys = GS_Z_UP_RIGHTHANDED;
+                else if (strcasecmp(sys_str, "z-up-rh-x") == 0) target_sys = GS_Z_UP_RIGHTHANDED_X_FWD;
                 else if (strcasecmp(sys_str, "z-up-lh") == 0) target_sys = GS_Z_UP_LEFTHANDED;
                 else if (strcasecmp(sys_str, "x-up-rh") == 0) target_sys = GS_X_UP_RIGHTHANDED;
                 else if (strcasecmp(sys_str, "x-up-lh") == 0) target_sys = GS_X_UP_LEFTHANDED;

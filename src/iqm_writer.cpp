@@ -15,7 +15,7 @@ static uint32_t write_text(std::vector<char>& pool, const std::string& s) {
     return pos;
 }
 
-bool write_iqm(Model& model, const char* output_path, bool force_single_anim) {
+bool write_iqm(const Model& model, const char* output_path, bool force_single_anim) {
     std::vector<gs_legacy_framegroup> metadata;
     std::vector<uint8_t> buffer = write_iqm_to_memory(model, force_single_anim, &metadata);
     if (buffer.empty()) return false;
@@ -45,10 +45,10 @@ bool write_iqm(Model& model, const char* output_path, bool force_single_anim) {
     return true;
 }
 
-std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, std::vector<gs_legacy_framegroup>* out_metadata) {
-    // 0. Automation: Convert orientation to Z-up, CW winding directly on the provided model
-    convert_orientation(model, GS_Z_UP_RIGHTHANDED, GS_WINDING_CW);
-    model.compute_bounds(); // Ensure bounds match new orientation
+std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_single_anim, std::vector<gs_legacy_framegroup>* out_metadata) {
+    Model model = model_in; // Create local copy
+    convert_orientation(model, GS_Z_UP_RIGHTHANDED_X_FWD, GS_WINDING_CW);
+    model.compute_bounds();
 
     std::vector<uint8_t> buffer;
     iqmheader hdr = {};
@@ -117,7 +117,7 @@ std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, s
             uint32_t f_offset = 0;
             for (size_t i = 0; i < model.animations.size(); ++i) {
                 gs_legacy_framegroup fg;
-                fg.name = model.animations[i].name.c_str();
+                fg.name = model_in.animations[i].name.c_str(); // Use model_in to prevent dangling pointer
                 fg.first_frame = f_offset;
                 fg.num_frames = clip_frame_counts[i];
                 fg.fps = BASE_FPS;
@@ -138,7 +138,7 @@ std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, s
 
             if (out_metadata) {
                 gs_legacy_framegroup fg;
-                fg.name = model.animations[i].name.c_str(); 
+                fg.name = model_in.animations[i].name.c_str(); // Use model_in to prevent dangling pointer
                 fg.first_frame = f_offset;
                 fg.num_frames = clip_frame_counts[i];
                 fg.fps = BASE_FPS;

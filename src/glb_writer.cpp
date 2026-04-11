@@ -1,6 +1,7 @@
 #include "glb_writer.h"
 #include "cgltf.h"
 #include "cgltf_write.h"
+#include "orientation.h"
 #include <iostream>
 #include <vector>
 #include <map>
@@ -50,7 +51,11 @@ bool write_glb(const Model& model, const char* output_path) {
     return true;
 }
 
-std::vector<uint8_t> write_glb_to_memory(const Model& model) {
+std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
+    Model model = model_in; // Create local copy
+    // Liberate the GLB writer: automatically convert to GLB-standard orientation
+    convert_orientation(model, GS_Y_UP_RIGHTHANDED, GS_WINDING_CCW);
+
     // 1. We use cgltf_write_file to a temporary file, then read it back.
     // This is the most robust way to support GLB memory export without 
     // manually implementing the GLB container logic.

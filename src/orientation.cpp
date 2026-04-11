@@ -12,14 +12,18 @@ struct Basis {
 
 static Basis get_basis(gs_coord_system sys) {
     switch (sys) {
-        case GS_Y_UP_RIGHTHANDED: return {{1,0,0}, {0,1,0}, {0,0,-1}};
-        case GS_Y_UP_LEFTHANDED:  return {{1,0,0}, {0,1,0}, {0,0,1}};
-        case GS_Z_UP_RIGHTHANDED: return {{1,0,0}, {0,0,1}, {0,1,0}};
-        case GS_Z_UP_LEFTHANDED:  return {{0,1,0}, {0,0,1}, {1,0,0}};
-        case GS_X_UP_RIGHTHANDED: return {{0,1,0}, {1,0,0}, {0,0,1}};
-        case GS_X_UP_LEFTHANDED:  return {{0,1,0}, {1,0,0}, {0,0,-1}};
+        // Right-Handed (det = +1)
+        case GS_Y_UP_RIGHTHANDED:       return {{ 1, 0, 0}, { 0, 1, 0}, { 0, 0, 1}}; // glTF (+Z Forward)
+        case GS_Z_UP_RIGHTHANDED:       return {{ 1, 0, 0}, { 0, 0, 1}, { 0,-1, 0}}; // Blender (-Y Forward)
+        case GS_Z_UP_RIGHTHANDED_X_FWD: return {{ 0, 1, 0}, { 0, 0, 1}, { 1, 0, 0}}; // IQM (+X Forward)
+        case GS_X_UP_RIGHTHANDED:       return {{ 0,-1, 0}, { 1, 0, 0}, { 0, 0, 1}}; // (+Z Forward)
+
+        // Left-Handed (det = -1)
+        case GS_Y_UP_LEFTHANDED:        return {{ 1, 0, 0}, { 0, 1, 0}, { 0, 0,-1}}; // Unity (-Z Forward)
+        case GS_Z_UP_LEFTHANDED:        return {{ 0,-1, 0}, { 0, 0, 1}, { 1, 0, 0}}; // Unreal (+X Forward)
+        case GS_X_UP_LEFTHANDED:        return {{ 0, 1, 0}, { 1, 0, 0}, { 0, 0, 1}}; // (+Z Forward)
     }
-    return {{1,0,0}, {0,1,0}, {0,0,-1}};
+    return {{1,0,0}, {0,1,0}, {0,0,1}};
 }
 
 static mat4 compute_conversion_matrix(gs_coord_system src_sys, gs_coord_system dst_sys) {

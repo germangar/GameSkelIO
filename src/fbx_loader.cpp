@@ -41,6 +41,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         else out.orientation = GS_Y_UP_LEFTHANDED;
     } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Z) {
         if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Y) out.orientation = GS_Z_UP_RIGHTHANDED;
+        else if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_X) out.orientation = GS_Z_UP_RIGHTHANDED_X_FWD;
         else out.orientation = GS_Z_UP_LEFTHANDED;
     } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_X) {
         if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Y) out.orientation = GS_X_UP_RIGHTHANDED;

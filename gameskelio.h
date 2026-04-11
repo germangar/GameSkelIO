@@ -26,6 +26,7 @@ typedef enum gs_coord_system {
     GS_Y_UP_RIGHTHANDED = 0, // glTF, Maya, OpenGL (Default)
     GS_Y_UP_LEFTHANDED,      // Unity, DirectX
     GS_Z_UP_RIGHTHANDED,     // Blender, 3ds Max
+    GS_Z_UP_RIGHTHANDED_X_FWD, // IQM, SKM (+X Forward)
     GS_Z_UP_LEFTHANDED,      // Unreal Engine
     GS_X_UP_RIGHTHANDED,     // Rare
     GS_X_UP_LEFTHANDED       // Rare
