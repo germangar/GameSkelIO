@@ -362,5 +362,8 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
         }
     }
 
+    out.orientation = GS_Y_UP_RIGHTHANDED;
+    out.winding = GS_WINDING_CCW;
+
     return true;
 }

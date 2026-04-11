@@ -265,5 +265,8 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
         }
     }
 
+    out.orientation = GS_Y_UP_RIGHTHANDED;
+    out.winding = GS_WINDING_CCW;
+
     return true;
 }

@@ -7,6 +7,7 @@
 #include "iqm_writer.h"
 #include "glb_writer.h"
 #include "fbx_writer.h"
+#include "orientation.h"
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -38,6 +39,8 @@ static void copy_anim_channel_to_c(const AnimChannel& src, gs_anim_channel& dst,
 
 static gs_model* model_cpp_to_c(const Model& cpp) {
     gs_model* c = (gs_model*)calloc(1, sizeof(gs_model));
+    c->orientation = cpp.orientation;
+    c->winding = cpp.winding;
     c->has_bounds = cpp.has_bounds;
     memcpy(c->mins, cpp.mins, sizeof(c->mins));
     memcpy(c->maxs, cpp.maxs, sizeof(c->maxs));
@@ -212,6 +215,8 @@ static Model model_c_to_cpp(const gs_model* c) {
     Model cpp;
     if (!c) return cpp;
 
+    cpp.orientation = c->orientation;
+    cpp.winding = c->winding;
     cpp.has_bounds = c->has_bounds;
     memcpy(cpp.mins, c->mins, sizeof(cpp.mins));
     memcpy(cpp.maxs, c->maxs, sizeof(cpp.maxs));
@@ -756,6 +761,95 @@ extern "C" bool gsk_rebase_pose(gs_model* model, uint32_t pose_anim_idx) {
     *model = *new_c;
     *new_c = temp;
     gsk_free_model(new_c);
+
+    return true;
+}
+
+extern "C" bool gsk_convert_orientation(gs_model* model, gs_coord_system target_orientation, gs_winding_order target_winding) {
+    if (!model) return false;
+    
+    // 1. Create a local C++ Model copy of the C model.
+    Model cpp = model_c_to_cpp(model);
+    
+    // 2. Call convert_orientation(cpp, target_orientation, target_winding) on that copy.
+    if (!convert_orientation(cpp, target_orientation, target_winding)) return false;
+
+    // 3. Update model metadata
+    model->orientation = cpp.orientation;
+    model->winding = cpp.winding;
+    model->has_bounds = cpp.has_bounds;
+    memcpy(model->mins, cpp.mins, sizeof(model->mins));
+    memcpy(model->maxs, cpp.maxs, sizeof(model->maxs));
+    model->radius = cpp.radius;
+    model->xyradius = cpp.xyradius;
+
+    // 4. Manually copy back the updated values from the C++ Model's vectors into the original C model's pointers.
+    
+    // Joints (TRS)
+    if (model->num_joints > 0 && model->joints) {
+        for (uint32_t i = 0; i < model->num_joints; ++i) {
+            memcpy(model->joints[i].translate, cpp.joints[i].translate, 3 * sizeof(float));
+            memcpy(model->joints[i].rotate, cpp.joints[i].rotate, 4 * sizeof(float));
+            memcpy(model->joints[i].scale, cpp.joints[i].scale, 3 * sizeof(float));
+        }
+    }
+
+    // Vertex data
+    if (model->num_vertices > 0) {
+        if (model->positions && !cpp.positions.empty()) {
+            memcpy(model->positions, cpp.positions.data(), cpp.positions.size() * sizeof(float));
+        }
+        if (model->normals && !cpp.normals.empty()) {
+            memcpy(model->normals, cpp.normals.data(), cpp.normals.size() * sizeof(float));
+        }
+        if (model->tangents && !cpp.tangents.empty()) {
+            memcpy(model->tangents, cpp.tangents.data(), cpp.tangents.size() * sizeof(float));
+        }
+    }
+
+    // Morph Targets
+    for (uint32_t i = 0; i < model->num_morph_targets; ++i) {
+        if (model->morph_targets[i].positions && !cpp.morph_targets[i].positions.empty()) {
+            memcpy(model->morph_targets[i].positions, cpp.morph_targets[i].positions.data(), cpp.morph_targets[i].positions.size() * sizeof(float));
+        }
+        if (model->morph_targets[i].normals && !cpp.morph_targets[i].normals.empty()) {
+            memcpy(model->morph_targets[i].normals, cpp.morph_targets[i].normals.data(), cpp.morph_targets[i].normals.size() * sizeof(float));
+        }
+    }
+
+    // Indices
+    if (model->num_indices > 0 && model->indices && !cpp.indices.empty()) {
+        memcpy(model->indices, cpp.indices.data(), cpp.indices.size() * sizeof(uint32_t));
+    }
+
+    // Animation Tracks
+    for (uint32_t i = 0; i < model->num_animations; ++i) {
+        for (uint32_t j = 0; j < model->animations[i].num_bones; ++j) {
+            gs_bone_anim& dst_bone = model->animations[i].bones[j];
+            const BoneAnim& src_bone = cpp.animations[i].bones[j];
+            
+            if (dst_bone.translation.values && !src_bone.translation.values.empty()) {
+                memcpy(dst_bone.translation.values, src_bone.translation.values.data(), src_bone.translation.values.size() * sizeof(float));
+            }
+            if (dst_bone.rotation.values && !src_bone.rotation.values.empty()) {
+                memcpy(dst_bone.rotation.values, src_bone.rotation.values.data(), src_bone.rotation.values.size() * sizeof(float));
+            }
+            if (dst_bone.scale.values && !src_bone.scale.values.empty()) {
+                memcpy(dst_bone.scale.values, src_bone.scale.values.data(), src_bone.scale.values.size() * sizeof(float));
+            }
+        }
+    }
+
+    // Matrices
+    if (model->world_matrices && !cpp.world_matrices.empty()) {
+        memcpy(model->world_matrices, cpp.world_matrices.data(), cpp.world_matrices.size() * sizeof(gs_mat4));
+    }
+    if (model->ibms && !cpp.ibms.empty()) {
+        memcpy(model->ibms, cpp.ibms.data(), cpp.ibms.size() * sizeof(gs_mat4));
+    }
+    if (model->computed_ibms && !cpp.computed_ibms.empty()) {
+        memcpy(model->computed_ibms, cpp.computed_ibms.data(), cpp.computed_ibms.size() * sizeof(gs_mat4));
+    }
 
     return true;
 }

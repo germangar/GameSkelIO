@@ -38,7 +38,8 @@ LIB_SRCS = iqm_loader.cpp \
            skp_loader.cpp \
            fbx_writer.cpp \
            fbx_loader.cpp \
-           gameskelio.cpp
+           gameskelio.cpp \
+           orientation.cpp
 
 LIB_OBJS = $(addprefix $(OBJDIR)/, $(LIB_SRCS:.cpp=.o)) \
            $(addprefix $(OBJDIR)/, fbx.o) \

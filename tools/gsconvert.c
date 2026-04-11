@@ -56,6 +56,14 @@ static bool ends_with(const char* str, const char* suffix) {
     return true;
 }
 
+static int strcasecmp_local(const char* s1, const char* s2) {
+    while (*s1 && (tolower((unsigned char)*s1) == tolower((unsigned char)*s2))) {
+        s1++;
+        s2++;
+    }
+    return (int)tolower((unsigned char)*s1) - (int)tolower((unsigned char)*s2);
+}
+
 static void* read_file_to_buffer(const char* path, size_t* out_size) {
     FILE* f = fopen(path, "rb");
     if (!f) return NULL;
@@ -115,7 +123,14 @@ static gs_legacy_framegroup* parse_cfg(const char* path, uint32_t* out_count) {
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s <input.iqm/glb/skm> <output.glb/iqm/fbx> [--base] [--anim] [--qfusion]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <input.iqm/glb/skm> <output.glb/iqm/fbx> [options]\n", argv[0]);
+        fprintf(stderr, "Options:\n");
+        fprintf(stderr, "  --base                     Export only the base pose (FBX only)\n");
+        fprintf(stderr, "  --anim                     Export only animations (FBX only)\n");
+        fprintf(stderr, "  --qfusion                  Force single animation (IQM only)\n");
+        fprintf(stderr, "  --orient <sys> <winding>   Convert orientation and winding order\n");
+        fprintf(stderr, "      Systems: y-up-rh, y-up-lh, z-up-rh, z-up-lh, x-up-rh, x-up-lh\n");
+        fprintf(stderr, "      Windings: ccw, cw\n");
         return 1;
     }
 
@@ -124,10 +139,48 @@ int main(int argc, char** argv) {
 
     gs_model* model = NULL;
     bool force_single_anim = false;
+    bool write_base = true;
+    bool write_anim = true;
+    bool do_orient = false;
+    gs_coord_system target_sys = GS_Y_UP_RIGHTHANDED;
+    gs_winding_order target_winding = GS_WINDING_CCW;
+    const char* sys_str = NULL;
+    const char* wind_str = NULL;
 
-    for (int i = 1; i < argc; ++i) {
+    for (int i = 3; i < argc; ++i) {
         if (strcmp(argv[i], "--qfusion") == 0) {
             force_single_anim = true;
+        } else if (strcmp(argv[i], "--base") == 0) {
+            write_anim = false;
+        } else if (strcmp(argv[i], "--anim") == 0) {
+            write_base = false;
+        } else if (strcmp(argv[i], "--orient") == 0) {
+            if (i + 2 < argc) {
+                do_orient = true;
+                sys_str = argv[++i];
+                wind_str = argv[++i];
+
+                if (strcasecmp_local(sys_str, "y-up-rh") == 0) target_sys = GS_Y_UP_RIGHTHANDED;
+                else if (strcasecmp_local(sys_str, "y-up-lh") == 0) target_sys = GS_Y_UP_LEFTHANDED;
+                else if (strcasecmp_local(sys_str, "z-up-rh") == 0) target_sys = GS_Z_UP_RIGHTHANDED;
+                else if (strcasecmp_local(sys_str, "z-up-lh") == 0) target_sys = GS_Z_UP_LEFTHANDED;
+                else if (strcasecmp_local(sys_str, "x-up-rh") == 0) target_sys = GS_X_UP_RIGHTHANDED;
+                else if (strcasecmp_local(sys_str, "x-up-lh") == 0) target_sys = GS_X_UP_LEFTHANDED;
+                else {
+                    fprintf(stderr, "Unknown coordinate system: %s\n", sys_str);
+                    return 1;
+                }
+
+                if (strcasecmp_local(wind_str, "ccw") == 0) target_winding = GS_WINDING_CCW;
+                else if (strcasecmp_local(wind_str, "cw") == 0) target_winding = GS_WINDING_CW;
+                else {
+                    fprintf(stderr, "Unknown winding order: %s\n", wind_str);
+                    return 1;
+                }
+            } else {
+                fprintf(stderr, "--orient requires <system> and <winding> arguments\n");
+                return 1;
+            }
         }
     }
 
@@ -262,6 +315,12 @@ int main(int argc, char** argv) {
                mat_name);
     }
 
+    // Orientation Conversion
+    if (do_orient) {
+        printf("Converting model orientation to %s, %s winding...\n", sys_str, wind_str);
+        gsk_convert_orientation(model, target_sys, target_winding);
+    }
+
     // Write Phase
     char* unique_out = get_unique_path(out_path);
     int ret_code = 0;
@@ -271,13 +330,6 @@ int main(int argc, char** argv) {
         if (!gsk_write_iqm(unique_out, model, force_single_anim)) ret_code = 3;
         else printf("Success\n");
     } else if (ends_with(unique_out, ".fbx")) {
-        bool write_base = true;
-        bool write_anim = true;
-        for (int i = 1; i < argc; ++i) {
-            if (strcmp(argv[i], "--base") == 0) write_anim = false;
-            if (strcmp(argv[i], "--anim") == 0) write_base = false;
-        }
-
         if (write_base && !write_anim) printf("Writing FBX (Base Pose only): %s...\n", unique_out);
         else if (!write_base && write_anim) printf("Writing FBX (Animations only): %s...\n", unique_out);
         else printf("Writing FBX (Complete): %s...\n", unique_out);

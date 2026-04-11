@@ -13,10 +13,24 @@
 #ifndef GAMESKELIO_H
 #define GAMESKELIO_H
 
-#define GAMESKELIO_VERSION 2
+#define GAMESKELIO_VERSION 3
 
 #include <stdint.h>
 #include <stdbool.h>
+
+typedef enum gs_coord_system {
+    GS_Y_UP_RIGHTHANDED = 0, // glTF, Maya, OpenGL (Default)
+    GS_Y_UP_LEFTHANDED,      // Unity, DirectX
+    GS_Z_UP_RIGHTHANDED,     // Blender, 3ds Max
+    GS_Z_UP_LEFTHANDED,      // Unreal Engine
+    GS_X_UP_RIGHTHANDED,     // Rare
+    GS_X_UP_LEFTHANDED       // Rare
+} gs_coord_system;
+
+typedef enum gs_winding_order {
+    GS_WINDING_CCW = 0, // Counter-Clockwise (Default for GLB/FBX)
+    GS_WINDING_CW  = 1  // Clockwise (Default for IQM/SKM)
+} gs_winding_order;
 
 #ifdef __cplusplus
 extern "C" {
@@ -142,6 +156,9 @@ typedef struct gs_morph_target {
  * weights_0: 4 joint weights per vertex.
  */
 typedef struct gs_model {
+    gs_coord_system orientation;
+    gs_winding_order winding;
+
     uint32_t num_joints;
     gs_joint* joints;
 
@@ -223,6 +240,7 @@ void gsk_compute_bind_pose(gs_model* model);
 void gsk_compute_bounds(gs_model* model);
 bool gsk_validate_skeleton(gs_model* model);
 void gsk_reorder_skeleton(gs_model* model);
+bool gsk_convert_orientation(gs_model* model, gs_coord_system target_orientation, gs_winding_order target_winding);
 
 #ifdef __cplusplus
 }

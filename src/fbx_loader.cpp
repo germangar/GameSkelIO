@@ -285,6 +285,22 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         ufbx_free_baked_anim(baked_anim);
     }
 
+    // Determine orientation from scene settings
+    ufbx_coordinate_axes axes = scene->settings.axes;
+    if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Y) {
+        if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Z) out.orientation = GS_Y_UP_RIGHTHANDED; // +Z front = -Z forward
+        else out.orientation = GS_Y_UP_LEFTHANDED;
+    } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Z) {
+        if (axes.right == UFBX_COORDINATE_AXIS_POSITIVE_X) out.orientation = GS_Z_UP_RIGHTHANDED;
+        else out.orientation = GS_Z_UP_LEFTHANDED;
+    } else if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_X) {
+        if (axes.front == UFBX_COORDINATE_AXIS_POSITIVE_Z) out.orientation = GS_X_UP_RIGHTHANDED;
+        else out.orientation = GS_X_UP_LEFTHANDED;
+    } else {
+        out.orientation = GS_Y_UP_RIGHTHANDED; // Fallback
+    }
+    out.winding = GS_WINDING_CCW;
+
     ufbx_free_scene(scene);
     return true;
 }

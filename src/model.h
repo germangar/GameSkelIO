@@ -8,6 +8,7 @@
 #include "iqm.h"
 #include "math_utils.h"
 #include "anim_cfg.h"
+#include "gameskelio.h"
 
 struct Joint {
     std::string name;
@@ -82,6 +83,9 @@ struct MorphTarget {
 };
 
 struct Model {
+    gs_coord_system orientation;
+    gs_winding_order winding;
+
     std::vector<Joint> joints;
     std::vector<Material> materials;
     std::vector<Mesh> meshes;

@@ -330,6 +330,9 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
         }
     }
     
+    out.orientation = GS_Y_UP_RIGHTHANDED;
+    out.winding = GS_WINDING_CCW;
+
     cgltf_free(gdata);
     return true;
 }
