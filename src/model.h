@@ -348,4 +348,27 @@ struct Model {
         }
         quat_normalize(out);
     }
+    void bake_animation(uint32_t anim_idx, float fps, std::vector<float>& out_data) const {
+        if (anim_idx >= animations.size()) return;
+        const AnimationDef& anim = animations[anim_idx];
+        
+        uint32_t nf = (uint32_t)std::round(anim.duration * fps) + 1;
+        uint32_t nj = (uint32_t)joints.size();
+        out_data.resize((size_t)nf * nj * 10);
+
+        std::vector<Pose> poses;
+        for (uint32_t i = 0; i < nf; ++i) {
+            double t = (double)i / (double)fps;
+            if (t > anim.duration) t = anim.duration;
+
+            evaluate_animation((int)anim_idx, t, poses);
+
+            for (uint32_t j = 0; j < nj; ++j) {
+                float* dst = &out_data[(i * nj + j) * 10];
+                memcpy(&dst[0], poses[j].translate, 12);
+                memcpy(&dst[3], poses[j].rotate, 16);
+                memcpy(&dst[7], poses[j].scale, 12);
+            }
+        }
+    }
 };

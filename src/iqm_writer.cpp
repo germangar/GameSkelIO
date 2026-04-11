@@ -1,5 +1,6 @@
 #include "iqm_writer.h"
 #include "orientation.h"
+#include <iostream>
 #include <fstream>
 #include <vector>
 #include <cstring>
@@ -88,20 +89,19 @@ std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, s
     // 3. Prepare Animations with Duration Snapping
     std::vector<iqmanim> iqm_anims;
     uint32_t total_iqm_frames = 0;
+    std::vector<float> dense_frames;
 
     std::vector<uint32_t> clip_frame_counts;
-    std::vector<double> snapped_durations;
     for (size_t i = 0; i < model.animations.size(); ++i) {
         const auto& ad = model.animations[i];
-        double clip_duration = ad.duration;
-
-        uint32_t nf = (uint32_t)std::round(clip_duration * BASE_FPS) + 1;
-        if (nf < 1) nf = 1;
-        double snapped_duration = (nf > 1) ? (double)(nf - 1) / (double)BASE_FPS : 0.0;
         
-        clip_frame_counts.push_back(nf);
-        snapped_durations.push_back(snapped_duration);
-        total_iqm_frames += nf;
+        std::vector<float> clip_data;
+        model.bake_animation((uint32_t)i, (float)BASE_FPS, clip_data);
+        uint32_t nf_actual = (uint32_t)(clip_data.size() / (model.joints.size() * 10));
+
+        clip_frame_counts.push_back(nf_actual);
+        total_iqm_frames += nf_actual;
+        dense_frames.insert(dense_frames.end(), clip_data.begin(), clip_data.end());
     }
 
     if (force_single_anim) {
@@ -156,36 +156,10 @@ std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, s
 
     std::vector<unsigned short> out_frames;
     if (total_iqm_frames > 0) {
-        std::vector<float> baked_frames(total_iqm_frames * model.joints.size() * 10);
-        std::vector<Pose> evaluated_poses;
-
-        uint32_t f_offset = 0;
-        for (size_t ai = 0; ai < model.animations.size(); ++ai) {
-            uint32_t nf = clip_frame_counts[ai];
-            double snapped_duration = snapped_durations[ai];
-
-            for (uint32_t f = 0; f < nf; ++f) {
-                // Use snapped duration for sampling time
-                double time = (nf > 1) ? (double)f * (snapped_duration / (double)(nf - 1)) : 0.0;
-                model.evaluate_animation((int)ai, time, evaluated_poses);
-
-                for (size_t ji = 0; ji < model.joints.size(); ++ji) {
-                    float* fout = &baked_frames[(f_offset + f) * model.joints.size() * 10 + ji * 10];
-                    const Pose& p = evaluated_poses[ji];
-                    float vals[10];
-                    memcpy(&vals[0], p.translate, 12);
-                    memcpy(&vals[3], p.rotate, 16);
-                    memcpy(&vals[7], p.scale, 12);
-                    memcpy(fout, vals, 40);
-                }
-            }
-            f_offset += nf;
-        }
-
         struct ChanStat { float min = 1e30f, max = -1e30f; };
         std::vector<std::vector<ChanStat>> stats(model.joints.size(), std::vector<ChanStat>(10));
         for (uint32_t f_idx = 0; f_idx < total_iqm_frames; ++f_idx) {
-            const float* fptr = &baked_frames[f_idx * model.joints.size() * 10];
+            const float* fptr = &dense_frames[f_idx * model.joints.size() * 10];
             for (size_t p = 0; p < model.joints.size(); ++p) {
                 for (int c = 0; c < 10; ++c) {
                     float val = fptr[p * 10 + c];
@@ -207,7 +181,7 @@ std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, s
         for (uint32_t f_idx = 0; f_idx < total_iqm_frames; ++f_idx) {
             for (size_t p = 0; p < model.joints.size(); ++p) {
                 for (int c = 0; c < 10; ++c) {
-                    float val = baked_frames[f_idx * model.joints.size() * 10 + p * 10 + c];
+                    float val = dense_frames[f_idx * model.joints.size() * 10 + p * 10 + c];
                     float off = iqm_poses[p].channeloffset[c];
                     float scl = iqm_poses[p].channelscale[c];
                     if (scl > 0) out_frames[f_idx * model.joints.size() * 10 + p * 10 + c] = (unsigned short)((val - off) / scl + 0.5f);

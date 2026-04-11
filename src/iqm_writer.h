@@ -5,8 +5,8 @@
 #include "gameskelio.h"
 
 // Write the intermediate Model representation to an IQM file.
-bool write_iqm(Model& model, const char* output_path, bool force_single_anim = false);
+bool write_iqm(Model& model, const char* output_path, bool force_single_anim);
 
 // Bake the intermediate Model representation into an IQM binary memory block.
 // Optional: returns calculated frame metadata in 'out_metadata'.
-std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim = false, std::vector<gs_legacy_framegroup>* out_metadata = nullptr);
+std::vector<uint8_t> write_iqm_to_memory(Model& model, bool force_single_anim, std::vector<gs_legacy_framegroup>* out_metadata = nullptr);

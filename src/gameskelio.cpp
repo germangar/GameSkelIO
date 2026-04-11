@@ -17,10 +17,10 @@
 #include <set>
 #include <cmath>
 
-static char* my_strdup(const std::string& s) {
-    if (s.empty()) return nullptr;
-    char* p = (char*)malloc(s.length() + 1);
-    strcpy(p, s.c_str());
+static char* my_strdup(const char* s) {
+    if (!s) return nullptr;
+    char* p = (char*)malloc(strlen(s) + 1);
+    strcpy(p, s);
     return p;
 }
 
@@ -52,7 +52,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
     if (c->num_joints > 0) {
         c->joints = (gs_joint*)calloc(c->num_joints, sizeof(gs_joint));
         for (size_t i = 0; i < c->num_joints; ++i) {
-            c->joints[i].name = my_strdup(cpp.joints[i].name);
+            c->joints[i].name = my_strdup(cpp.joints[i].name.c_str());
             c->joints[i].parent = cpp.joints[i].parent;
             memcpy(c->joints[i].translate, cpp.joints[i].translate, sizeof(c->joints[i].translate));
             memcpy(c->joints[i].rotate, cpp.joints[i].rotate, sizeof(c->joints[i].rotate));
@@ -66,17 +66,17 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         for (size_t i = 0; i < c->num_materials; ++i) {
             const Material& src = cpp.materials[i];
             gs_material& dst = c->materials[i];
-            dst.name = my_strdup(src.name);
+            dst.name = my_strdup(src.name.c_str());
             dst.material_type = src.material_type;
-            dst.color_map = my_strdup(src.color_map);
-            dst.normal_map = my_strdup(src.normal_map);
-            dst.metallic_map = my_strdup(src.metallic_map);
-            dst.roughness_map = my_strdup(src.roughness_map);
-            dst.specular_map = my_strdup(src.specular_map);
-            dst.shininess_map = my_strdup(src.shininess_map);
-            dst.emissive_map = my_strdup(src.emissive_map);
-            dst.occlusion_map = my_strdup(src.occlusion_map);
-            dst.opacity_map = my_strdup(src.opacity_map);
+            dst.color_map = my_strdup(src.color_map.c_str());
+            dst.normal_map = my_strdup(src.normal_map.c_str());
+            dst.metallic_map = my_strdup(src.metallic_map.c_str());
+            dst.roughness_map = my_strdup(src.roughness_map.c_str());
+            dst.specular_map = my_strdup(src.specular_map.c_str());
+            dst.shininess_map = my_strdup(src.shininess_map.c_str());
+            dst.emissive_map = my_strdup(src.emissive_map.c_str());
+            dst.occlusion_map = my_strdup(src.occlusion_map.c_str());
+            dst.opacity_map = my_strdup(src.opacity_map.c_str());
             memcpy(dst.base_color, src.base_color, sizeof(dst.base_color));
             memcpy(dst.specular_color, src.specular_color, sizeof(dst.specular_color));
             memcpy(dst.emissive_color, src.emissive_color, sizeof(dst.emissive_color));
@@ -90,7 +90,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
     if (c->num_meshes > 0) {
         c->meshes = (gs_mesh*)calloc(c->num_meshes, sizeof(gs_mesh));
         for (size_t i = 0; i < c->num_meshes; ++i) {
-            c->meshes[i].name = my_strdup(cpp.meshes[i].name);
+            c->meshes[i].name = my_strdup(cpp.meshes[i].name.c_str());
             c->meshes[i].material_idx = cpp.meshes[i].material_idx;
             c->meshes[i].first_vertex = cpp.meshes[i].first_vertex;
             c->meshes[i].num_vertexes = cpp.meshes[i].num_vertexes;
@@ -103,7 +103,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
     if (c->num_animations > 0) {
         c->animations = (gs_animation*)calloc(c->num_animations, sizeof(gs_animation));
         for (size_t i = 0; i < c->num_animations; ++i) {
-            c->animations[i].name = my_strdup(cpp.animations[i].name);
+            c->animations[i].name = my_strdup(cpp.animations[i].name.c_str());
             c->animations[i].duration = cpp.animations[i].duration;
             c->animations[i].num_bones = (uint32_t)cpp.animations[i].bones.size();
             if (c->animations[i].num_bones > 0) {
@@ -169,7 +169,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
     if (c->num_morph_targets > 0) {
         c->morph_targets = (gs_morph_target*)calloc(c->num_morph_targets, sizeof(gs_morph_target));
         for (size_t i = 0; i < c->num_morph_targets; ++i) {
-            c->morph_targets[i].name = my_strdup(cpp.morph_targets[i].name);
+            c->morph_targets[i].name = my_strdup(cpp.morph_targets[i].name.c_str());
             if (!cpp.morph_targets[i].positions.empty()) {
                 c->morph_targets[i].positions = (float*)malloc(cpp.morph_targets[i].positions.size() * sizeof(float));
                 memcpy(c->morph_targets[i].positions, cpp.morph_targets[i].positions.data(), cpp.morph_targets[i].positions.size() * sizeof(float));
@@ -276,6 +276,7 @@ static Model model_c_to_cpp(const gs_model* c) {
         cpp.animations.resize(c->num_animations);
         for (uint32_t i = 0; i < c->num_animations; ++i) {
             if (c->animations[i].name) cpp.animations[i].name = c->animations[i].name;
+            cpp.animations[i].duration = c->animations[i].duration;
             
             if (c->animations[i].num_bones > 0 && c->animations[i].bones) {
                 cpp.animations[i].bones.resize(c->animations[i].num_bones);

@@ -1,30 +1,3 @@
 # FBX Writer Restoration & Feature Integration Task List
 
-1. Multi-Mesh & Material System [DONE]
-   - Transition from single-mesh to `in.meshes` loop.
-   - Use vectors for `mesh_model_ids` and `mesh_geom_ids`.
-   - Implement `FBXMaterialIDs` for multi-map support (Diffuse, Normal, etc.).
-   - CRITICAL: Maintain strict skeletal hierarchy connections at the end of the file.
-
-2. Vertex Attribute Expansion [DONE]
-   - Re-implement Tangent and Binormal export logic.
-   - Re-implement Vertex Color support (`in.colors`).
-   - Re-implement Secondary UV set support (`in.texcoords_1`).
-   - Make sure the node hierarchy is preserved.
-
-3. PBR Material Logic [DONE]
-   - Transition from hardcoded "phong" to "pbs" shading model support.
-   - Re-integrate PBR Properties (BaseColor, Metallic, Roughness, Emissive).
-   - Implement Opacity/Transparency map linking.
-   - Make sure the node hierarchy is preserved.
-
-4. Morph Targets (Blend Shapes) [DONE]
-   - Restore `MeshMorphIDs` and ID generation logic.
-   - Restore geometry delta calculation and writing.
-   - Restore "DeformPercent" animation curve nodes.
-   - Make sure the node hierarchy is preserved.
-
-5. Animation Stability & Solver [DONE]
-   - Restore quaternion hemisphere enforcement (dot product check).
-   - Switch back to `quat_to_euler_near` for frame-to-frame continuity.
-   - Make sure the node hierarchy is preserved.
+- Study the possibility of having the C-style model struct defined inside the C++ code so they share the same data instead of having to be updating it all the time.

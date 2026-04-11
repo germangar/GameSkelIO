@@ -328,7 +328,7 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
         for (const auto& a : anims) {
             AnimationDef ad;
             ad.name = a.name;
-            ad.duration = (a.count > 0) ? (double)(a.count - 1) / a.fps : 0.0;
+            ad.duration = (double)a.count / a.fps;
             ad.bones.resize(num_bones);
             for (int f = a.first; f < a.first + a.count; ++f) {
                 if (f < 0 || f >= (int)num_frames) continue;
@@ -362,7 +362,7 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
         }
     }
 
-    out.orientation = GS_Z_UP_RIGHTHANDED_Q;
+    out.orientation = GS_Z_UP_RIGHTHANDED;
     out.winding = GS_WINDING_CW;
     return true;
 }

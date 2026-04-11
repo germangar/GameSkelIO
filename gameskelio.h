@@ -3,9 +3,13 @@
  * 
  * A C-compatible library for 3D skeletal model and animation conversion.
  * 
- * CORE CONVENTIONS:
- * - Coordinate System: Y-Up, Right-Handed.
- * - Winding Order: Counter-Clockwise (CCW).
+ * CORE ARCHITECTURE:
+ * - Self-Describing: Models identify their own orientation and winding order.
+ * - Native Loaders: Formats are loaded in their native state (e.g. Z-Up for IQM).
+ * - Automated Writers: Exporters request their required format transparently.
+ * - In-Place Conversion: Orientation swaps are performed inside existing buffers.
+ * 
+ * DATA CONVENTIONS:
  * - Animation: Sparse, timestamp-based (seconds).
  * - Rotations: Quaternions (xyzw).
  */
@@ -26,6 +30,7 @@ typedef enum gs_coord_system {
     GS_X_UP_RIGHTHANDED,     // Rare
     GS_X_UP_LEFTHANDED       // Rare
 } gs_coord_system;
+
 
 typedef enum gs_winding_order {
     GS_WINDING_CCW = 0, // Counter-Clockwise (Default for GLB/FBX)
