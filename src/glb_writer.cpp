@@ -140,21 +140,27 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     if (num_joints > 0) ibm_view_idx = num_views++;
     if (num_anims > 0) anim_view_idx = num_views++;
 
+    auto append_to_buffer_aligned = [&](std::vector<char>& b, cgltf_buffer* buffer, const void* data, size_t size) {
+        // glTF requires 4-byte alignment for most things
+        while (b.size() % 4 != 0) b.push_back(0);
+        size_t off = b.size();
+        const char* ptr = (const char*)data;
+        for (size_t i = 0; i < size; ++i) b.push_back(ptr[i]);
+        return off;
+    };
+
     out->buffer_views_count = num_views;
     out->buffer_views = (cgltf_buffer_view*)calloc(num_views, sizeof(cgltf_buffer_view));
     for (int i = 0; i < num_views; ++i) out->buffer_views[i].buffer = &out->buffers[0];
+    
     out->buffer_views[mesh_view_idx].type = cgltf_buffer_view_type_vertices;
-    out->buffer_views[index_view_idx].type = cgltf_buffer_view_type_indices;
-
-    out->buffer_views[mesh_view_idx].offset = buf.size();
-    size_t pos_off = buf.size(); append_to_buffer(buf, &out->buffers[0], model.positions.data(), model.positions.size() * sizeof(float));
-    size_t norm_off = buf.size(); append_to_buffer(buf, &out->buffers[0], model.normals.data(), model.normals.size() * sizeof(float));
-    size_t uv_off = buf.size(); append_to_buffer(buf, &out->buffers[0], model.texcoords.data(), model.texcoords.size() * sizeof(float));
-    size_t joint_off = buf.size(); append_to_buffer(buf, &out->buffers[0], model.joints_0.data(), model.joints_0.size());
-    size_t weight_off = buf.size(); append_to_buffer(buf, &out->buffers[0], model.weights_0.data(), model.weights_0.size() * sizeof(float));
+    out->buffer_views[mesh_view_idx].offset = append_to_buffer_aligned(buf, &out->buffers[0], model.positions.data(), model.positions.size() * sizeof(float));
+    size_t pos_off = out->buffer_views[mesh_view_idx].offset;
+    size_t norm_off = append_to_buffer_aligned(buf, &out->buffers[0], model.normals.data(), model.normals.size() * sizeof(float));
+    size_t uv_off = append_to_buffer_aligned(buf, &out->buffers[0], model.texcoords.data(), model.texcoords.size() * sizeof(float));
+    size_t joint_off = append_to_buffer_aligned(buf, &out->buffers[0], model.joints_0.data(), model.joints_0.size());
+    size_t weight_off = append_to_buffer_aligned(buf, &out->buffers[0], model.weights_0.data(), model.weights_0.size() * sizeof(float));
     out->buffer_views[mesh_view_idx].size = buf.size() - out->buffer_views[mesh_view_idx].offset;
-
-    out->buffer_views[index_view_idx].offset = buf.size();
 
     // Collect unique textures
     std::vector<std::string> unique_textures;
@@ -181,52 +187,39 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
         out->textures = (cgltf_texture*)calloc(out->textures_count, sizeof(cgltf_texture));
         for (size_t i = 0; i < unique_textures.size(); ++i) {
             const std::string& path = unique_textures[i];
-            
-            // Generate a clean filename for metadata
             std::string filename = path;
-            if (filename.rfind("embedded://", 0) == 0) {
-                filename = filename.substr(11);
-            } else {
-                size_t slash = filename.find_last_of("/\\");
-                if (slash != std::string::npos) filename = filename.substr(slash + 1);
-            }
+            if (filename.rfind("embedded://", 0) == 0) filename = filename.substr(11);
+            else { size_t slash = filename.find_last_of("/\\"); if (slash != std::string::npos) filename = filename.substr(slash + 1); }
             out->images[i].name = strdup(filename.c_str());
 
-            // Check if we have this texture embedded
             const TextureBuffer* tb = nullptr;
-            for (const auto& t : model.textures) {
-                if (t.original_path == path) {
-                    tb = &t;
-                    break;
-                }
-            }
+            for (const auto& t : model.textures) { if (t.original_path == path) { tb = &t; break; } }
 
             if (tb && !tb->data.empty()) {
-                // Embed in GLB buffer
-                size_t off = buf.size();
-                append_to_buffer(buf, &out->buffers[0], tb->data.data(), tb->data.size());
-                
-                // Create buffer view for the image
                 out->buffer_views = (cgltf_buffer_view*)realloc(out->buffer_views, (out->buffer_views_count + 1) * sizeof(cgltf_buffer_view));
                 cgltf_buffer_view* view = &out->buffer_views[out->buffer_views_count++];
                 memset(view, 0, sizeof(cgltf_buffer_view));
                 view->buffer = &out->buffers[0];
-                view->offset = off;
+                view->offset = append_to_buffer_aligned(buf, &out->buffers[0], tb->data.data(), tb->data.size());
                 view->size = tb->data.size();
-                view->type = cgltf_buffer_view_type_invalid; // Standard for images
-
                 out->images[i].buffer_view = view;
-                // Identify mime type from extension
-                std::string ext = filename;
-                size_t dot = ext.find_last_of('.');
-                if (dot != std::string::npos) {
-                    ext = ext.substr(dot + 1);
-                    for (char& c : ext) c = (char)tolower(c);
-                    if (ext == "png") out->images[i].mime_type = strdup("image/png");
-                    else if (ext == "jpg" || ext == "jpeg") out->images[i].mime_type = strdup("image/jpeg");
+
+                // Sniff mime type
+                if (tb->data.size() > 4) {
+                    const uint8_t* d = tb->data.data();
+                    if (d[0] == 0x89 && d[1] == 0x50 && d[2] == 0x4E && d[3] == 0x47) out->images[i].mime_type = strdup("image/png");
+                    else if (d[0] == 0xFF && d[1] == 0xD8) out->images[i].mime_type = strdup("image/jpeg");
                 }
+                if (!out->images[i].mime_type) {
+                    std::string ext = filename; size_t dot = ext.find_last_of('.');
+                    if (dot != std::string::npos) {
+                        ext = ext.substr(dot + 1); for (char& c : ext) c = (char)tolower(c);
+                        if (ext == "png") out->images[i].mime_type = strdup("image/png");
+                        else if (ext == "jpg" || ext == "jpeg") out->images[i].mime_type = strdup("image/jpeg");
+                    }
+                }
+                if (!out->images[i].mime_type) out->images[i].mime_type = strdup("image/png"); // Fallback
             } else {
-                // External reference
                 out->images[i].uri = strdup(filename.c_str());
             }
             out->textures[i].image = &out->images[i];
@@ -240,6 +233,10 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
         }
         return nullptr;
     };
+
+    out->buffer_views[index_view_idx].type = cgltf_buffer_view_type_indices;
+    while (buf.size() % 4 != 0) buf.push_back(0);
+    out->buffer_views[index_view_idx].offset = buf.size();
 
     out->materials_count = (cgltf_size)model.materials.size();
     if (out->materials_count > 0) {
@@ -266,7 +263,9 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
             
             mat->pbr_metallic_roughness.base_color_texture.texture = get_texture(src.color_map);
             mat->normal_texture.texture = get_texture(src.normal_map);
+            mat->normal_texture.scale = 1.0f;
             mat->occlusion_texture.texture = get_texture(src.occlusion_map);
+            mat->occlusion_texture.scale = 1.0f;
             mat->emissive_texture.texture = get_texture(src.emissive_map);
             memcpy(mat->emissive_factor, src.emissive_color, 12);
         }
@@ -324,7 +323,7 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
             s_indices[t*3+1] = model.indices[model.meshes[i].first_triangle*3 + t*3+1] - model.meshes[i].first_vertex;
             s_indices[t*3+2] = model.indices[model.meshes[i].first_triangle*3 + t*3+2] - model.meshes[i].first_vertex;
         }
-        size_t off = buf.size(); append_to_buffer(buf, &out->buffers[0], s_indices.data(), s_indices.size()*4);
+        size_t off = append_to_buffer_aligned(buf, &out->buffers[0], s_indices.data(), s_indices.size()*4);
         prim->indices = alloc_accessor(out, &out->buffer_views[index_view_idx], cgltf_type_scalar, cgltf_component_type_r_32u, s_indices.size(), off - out->buffer_views[index_view_idx].offset);
     }
     out->buffer_views[index_view_idx].size = buf.size() - out->buffer_views[index_view_idx].offset;
