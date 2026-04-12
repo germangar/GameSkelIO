@@ -34,6 +34,62 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         return false;
     }
 
+    // 0. Extract Textures
+    std::map<ufbx_texture*, std::string> texture_to_path;
+    for (size_t i = 0; i < scene->textures.count; ++i) {
+        ufbx_texture* tex = scene->textures[i];
+        if (tex->type != UFBX_TEXTURE_FILE) continue;
+
+        ufbx_blob content = { 0 };
+        if (tex->content.size > 0) {
+            content = tex->content;
+        } else if (tex->video && tex->video->content.size > 0) {
+            content = tex->video->content;
+        }
+
+        std::string virtual_path;
+        if (content.size > 0) {
+            if (tex->name.length > 0) {
+                virtual_path = "embedded://" + std::string(tex->name.data);
+            } else if (tex->filename.length > 0) {
+                std::string full_path = tex->filename.data;
+                size_t last_slash = full_path.find_last_of("\\/");
+                if (last_slash != std::string::npos) {
+                    virtual_path = "embedded://" + full_path.substr(last_slash + 1);
+                } else {
+                    virtual_path = "embedded://" + full_path;
+                }
+            } else {
+                virtual_path = "embedded://texture_" + std::to_string(i);
+            }
+
+            // Ensure uniqueness
+            std::string base_path = virtual_path;
+            int counter = 1;
+            bool unique = false;
+            while (!unique) {
+                unique = true;
+                for (auto const& it : texture_to_path) {
+                    if (it.second == virtual_path) {
+                        unique = false;
+                        virtual_path = base_path + "_" + std::to_string(counter++);
+                        break;
+                    }
+                }
+            }
+
+            TextureBuffer tb;
+            tb.original_path = virtual_path;
+            tb.data.resize(content.size);
+            memcpy(tb.data.data(), content.data, content.size);
+            out.textures.push_back(tb);
+            texture_to_path[tex] = virtual_path;
+        } else {
+            // Not embedded, use the filename as is or basename if possible
+            texture_to_path[tex] = tex->filename.data;
+        }
+    }
+
     // Determine orientation from scene settings
     ufbx_coordinate_axes axes = scene->settings.axes;
     if (axes.up == UFBX_COORDINATE_AXIS_POSITIVE_Y) {
@@ -143,6 +199,70 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
             mat.name = mat_name;
             ufbx_material* fmat = (fmesh->materials.count > 0) ? fmesh->materials[0] : nullptr;
             if (fmat) {
+                auto get_tex_path = [&](ufbx_texture* tex) -> std::string {
+                    if (!tex) return "";
+                    if (texture_to_path.count(tex)) return texture_to_path[tex];
+                    return tex->filename.data;
+                };
+
+                mat.material_type = fmat->features.pbr.enabled ? 0 : 1;
+
+                mat.color_map = get_tex_path(fmat->pbr.base_color.texture);
+                if (mat.color_map.empty()) mat.color_map = get_tex_path(fmat->fbx.diffuse_color.texture);
+
+                mat.normal_map = get_tex_path(fmat->pbr.normal_map.texture);
+                if (mat.normal_map.empty()) mat.normal_map = get_tex_path(fmat->fbx.normal_map.texture);
+                if (mat.normal_map.empty()) mat.normal_map = get_tex_path(fmat->fbx.bump.texture);
+
+                mat.metallic_map = get_tex_path(fmat->pbr.metalness.texture);
+                if (mat.metallic_map.empty()) mat.metallic_map = get_tex_path(fmat->fbx.reflection_factor.texture);
+
+                mat.roughness_map = get_tex_path(fmat->pbr.roughness.texture);
+                if (mat.roughness_map.empty()) mat.roughness_map = get_tex_path(fmat->pbr.glossiness.texture);
+
+                mat.emissive_map = get_tex_path(fmat->pbr.emission_color.texture);
+                if (mat.emissive_map.empty()) mat.emissive_map = get_tex_path(fmat->fbx.emission_color.texture);
+
+                // Proactive keyword probing: handles FBX files with non-standard slot connections
+                auto find_keyword = [&](const char* kw) -> std::string {
+                    for (size_t ti = 0; ti < fmat->textures.count; ++ti) {
+                        std::string p = get_tex_path(fmat->textures[ti].texture);
+                        std::string lp = p;
+                        for (char& c : lp) c = (char)std::tolower((unsigned char)c);
+                        if (lp.find(kw) != std::string::npos) return p;
+                    }
+                    return "";
+                };
+
+                if (mat.metallic_map.empty()) mat.metallic_map = find_keyword("metal");
+                if (mat.roughness_map.empty()) {
+                    mat.roughness_map = find_keyword("rough");
+                    if (mat.roughness_map.empty()) mat.roughness_map = find_keyword("gloss");
+                }
+                if (mat.normal_map.empty()) {
+                    mat.normal_map = find_keyword("normal");
+                    if (mat.normal_map.empty()) mat.normal_map = find_keyword("bump");
+                }
+                if (mat.color_map.empty()) {
+                    mat.color_map = find_keyword("albedo");
+                    if (mat.color_map.empty()) mat.color_map = find_keyword("base");
+                    if (mat.color_map.empty()) mat.color_map = find_keyword("diff");
+                }
+                if (mat.emissive_map.empty()) mat.emissive_map = find_keyword("emis");
+
+                mat.occlusion_map = get_tex_path(fmat->pbr.ambient_occlusion.texture);
+                mat.opacity_map = get_tex_path(fmat->pbr.opacity.texture);
+                if (mat.opacity_map.empty()) mat.opacity_map = get_tex_path(fmat->fbx.transparency_color.texture);
+
+                // Fallback: if not natively PBR, check suffixes or map population
+                if (mat.material_type != 0) {
+                    if (is_pbr_suffix(mat.color_map) || is_pbr_suffix(mat.normal_map) || 
+                        is_pbr_suffix(mat.metallic_map) || is_pbr_suffix(mat.roughness_map) ||
+                        !mat.metallic_map.empty() || !mat.roughness_map.empty()) {
+                        mat.material_type = 0;
+                    }
+                }
+
                 mat.base_color[0] = (float)fmat->pbr.base_color.value_vec4.x;
                 mat.base_color[1] = (float)fmat->pbr.base_color.value_vec4.y;
                 mat.base_color[2] = (float)fmat->pbr.base_color.value_vec4.z;

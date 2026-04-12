@@ -10,6 +10,18 @@
 #include "anim_cfg.h"
 #include "gameskelio.h"
 
+inline bool is_pbr_suffix(const std::string& path) {
+    if (path.empty()) return false;
+    std::string lower = path;
+    for (char& c : lower) c = (char)std::tolower((unsigned char)c);
+    
+    return (lower.find("albedo") != std::string::npos ||
+            lower.find("metallic") != std::string::npos ||
+            lower.find("metal") != std::string::npos ||
+            lower.find("roughness") != std::string::npos ||
+            lower.find("rough") != std::string::npos);
+}
+
 struct Joint {
     std::string name;
     int parent;

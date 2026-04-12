@@ -1,0 +1,19 @@
+# GameSkelIO Materials Progress Status - 2026-04-12
+
+## Implemented Features
+- [x] gs_material structure updated with PBR and Legacy support.
+- [x] is_pbr_suffix helper function implemented for automatic material type detection.
+- [x] Loaders (GLB, FBX, IQM, SKP) updated to identify material type (PBR vs Legacy).
+- [x] Loaders (GLB, FBX, IQM, SKP) updated to assign texture map paths into materials.
+- [x] GLB loader: extraction of metallic/roughness and emissive maps.
+- [x] FBX loader: full PBR map extraction (base color, normal, metallic, roughness, emissive).
+- [x] Memory management: material strings properly duplicated and freed in C/C++ bridge.
+- [x] Embedded Texture Identification: Robust `embedded://` virtual paths implemented in FBX and GLB.
+- [x] Extended Map Support: GLB and FBX loaders now probe for legacy and PBR slots (occlusion, opacity, bump fallbacks).
+- [x] Improved PBR Detection: Heuristic now identifies PBR materials if `metallic_map` OR `roughness_map` are populated, even without standard suffixes.
+- [x] Robust FBX Material Mapping: Added `reflection_factor` fallback and proactive keyword-based map probing in the FBX loader.
+
+## Not Yet Implemented (Planned)
+- [ ] Writers: Logic to write texture map paths (filenames) into export formats (GLB, FBX, IQM).
+- [ ] Writers: Logic to export/embed the actual texture files themselves into the output packages.
+- [ ] Writers: Orientation/Coord-system mapping for material-related axes (if applicable).

@@ -76,6 +76,11 @@ typedef struct gs_mesh {
     uint32_t num_triangles;
 } gs_mesh;
 
+typedef enum gs_material_type {
+    GS_MAT_PBR = 0,
+    GS_MAT_LEGACY = 1
+} gs_material_type;
+
 /**
  * Defines material properties for a mesh.
  */
@@ -173,6 +178,12 @@ typedef struct gs_baked_anim {
     float* data; // Interleaved data: num_frames * num_joints * 10 (T3, R4, S3)
 } gs_baked_anim;
 
+typedef struct gs_texture_buffer {
+    char* original_path;
+    uint32_t size;
+    void* data;
+} gs_texture_buffer;
+
 typedef struct gs_model {
     gs_coord_system orientation;
     gs_winding_order winding;
@@ -216,6 +227,9 @@ typedef struct gs_model {
     float radius;
     float xyradius;
     bool has_bounds;
+
+    uint32_t num_textures;
+    gs_texture_buffer* textures;
 } gs_model;
 
 // --- Endpoints ---
@@ -267,6 +281,8 @@ bool gsk_convert_orientation(gs_model* model, gs_coord_system target_orientation
  */
 gs_baked_anim* gsk_bake_animation(const gs_model* model, uint32_t anim_idx, float fps);
 void gsk_free_baked_anim(gs_baked_anim* baked);
+
+const void* gsk_get_embedded_texture(const gs_model* model, const char* path, size_t* out_size);
 
 #ifdef __cplusplus
 }

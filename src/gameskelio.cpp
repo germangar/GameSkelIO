@@ -16,6 +16,7 @@
 #include <map>
 #include <set>
 #include <cmath>
+#include <cctype>
 
 static char* my_strdup(const char* s) {
     if (!s) return nullptr;
@@ -202,6 +203,17 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
         memcpy(c->computed_ibms, cpp.computed_ibms.data(), cpp.computed_ibms.size() * sizeof(gs_mat4));
     }
 
+    c->num_textures = (uint32_t)cpp.textures.size();
+    if (c->num_textures > 0) {
+        c->textures = (gs_texture_buffer*)calloc(c->num_textures, sizeof(gs_texture_buffer));
+        for (size_t i = 0; i < c->num_textures; ++i) {
+            c->textures[i].original_path = my_strdup(cpp.textures[i].original_path.c_str());
+            c->textures[i].size = (uint32_t)cpp.textures[i].data.size();
+            c->textures[i].data = malloc(c->textures[i].size);
+            memcpy(c->textures[i].data, cpp.textures[i].data.data(), c->textures[i].size);
+        }
+    }
+
     return c;
 }
 
@@ -335,6 +347,16 @@ static Model model_c_to_cpp(const gs_model* c) {
         if (c->computed_ibms) {
             cpp.computed_ibms.resize(c->num_joints);
             memcpy(cpp.computed_ibms.data(), c->computed_ibms, c->num_joints * sizeof(gs_mat4));
+        }
+    }
+
+    if (c->num_textures > 0 && c->textures) {
+        cpp.textures.resize(c->num_textures);
+        for (uint32_t i = 0; i < c->num_textures; ++i) {
+            if (c->textures[i].original_path) cpp.textures[i].original_path = c->textures[i].original_path;
+            if (c->textures[i].data && c->textures[i].size > 0) {
+                cpp.textures[i].data.assign((uint8_t*)c->textures[i].data, (uint8_t*)c->textures[i].data + c->textures[i].size);
+            }
         }
     }
 
@@ -547,6 +569,14 @@ extern "C" void gsk_free_model(gs_model* model) {
     free(model->ibms);
     free(model->computed_ibms);
 
+    if (model->textures) {
+        for (uint32_t i = 0; i < model->num_textures; ++i) {
+            free(model->textures[i].original_path);
+            free(model->textures[i].data);
+        }
+        free(model->textures);
+    }
+
     free(model);
 }
 
@@ -605,7 +635,31 @@ extern "C" bool gsk_reorder_skeleton(gs_model* model) {
     return true;
 }
 extern "C" uint32_t gsk_get_version(void) {
-    return 3;
+    return GAMESKELIO_VERSION;
+}
+
+static bool paths_equal_case_insensitive(const char* a, const char* b) {
+    if (!a || !b) return a == b;
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return false;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+extern "C" const void* gsk_get_embedded_texture(const gs_model* model, const char* path, size_t* out_size) {
+    if (!model || !path) return nullptr;
+    
+    // Normal look-up
+    for (uint32_t i = 0; i < model->num_textures; i++) {
+        if (paths_equal_case_insensitive(model->textures[i].original_path, path)) {
+            if (out_size) *out_size = model->textures[i].size;
+            return model->textures[i].data;
+        }
+    }
+    
+    return nullptr;
 }
 
 extern "C" bool gsk_move_animation(gs_model* model, uint32_t from_idx, uint32_t to_idx) {

@@ -30,6 +30,57 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
     // For memory loading, we assume it's a self-contained GLB or the data already contains buffers.
     if (gdata->file_type == cgltf_file_type_glb) {
         result = cgltf_load_buffers(&options, gdata, nullptr);
+        if (result != cgltf_result_success) {
+            cgltf_free(gdata);
+            return false;
+        }
+    }
+
+    // 0. Extract Textures
+    std::map<cgltf_image*, std::string> image_to_path;
+    for (size_t i = 0; i < gdata->images_count; ++i) {
+        cgltf_image* img = &gdata->images[i];
+        
+        std::string virtual_path;
+        if (img->name && strlen(img->name) > 0) {
+            virtual_path = "embedded://" + std::string(img->name);
+        } else if (img->uri && strncmp(img->uri, "data:", 5) != 0) {
+            std::string uri = img->uri;
+            size_t last_slash = uri.find_last_of("\\/");
+            if (last_slash != std::string::npos) {
+                virtual_path = "embedded://" + uri.substr(last_slash + 1);
+            } else {
+                virtual_path = "embedded://" + uri;
+            }
+        } else {
+            virtual_path = "embedded://texture_" + std::to_string(i);
+        }
+
+        // Ensure uniqueness
+        std::string base_path = virtual_path;
+        int counter = 1;
+        bool unique = false;
+        while (!unique) {
+            unique = true;
+            for (auto const& it : image_to_path) {
+                if (it.second == virtual_path) {
+                    unique = false;
+                    virtual_path = base_path + "_" + std::to_string(counter++);
+                    break;
+                }
+            }
+        }
+        
+        image_to_path[img] = virtual_path;
+
+        if (img->buffer_view) {
+            TextureBuffer tb;
+            tb.original_path = virtual_path;
+            tb.data.resize(img->buffer_view->size);
+            const uint8_t* src = (const uint8_t*)img->buffer_view->buffer->data + img->buffer_view->offset;
+            memcpy(tb.data.data(), src, img->buffer_view->size);
+            out.textures.push_back(tb);
+        }
     }
 
     std::map<cgltf_node*, int> node_to_joint;
@@ -117,6 +168,7 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
                 mat_idx = (int)out.materials.size();
                 Material mat;
                 mat.name = mat_name;
+                mat.material_type = 1; // Default to legacy, then check PBR
                 if (cmat) {
                     if (cmat->has_pbr_metallic_roughness) {
                         mat.material_type = 0;
@@ -124,15 +176,37 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
                         mat.metallic_factor = cmat->pbr_metallic_roughness.metallic_factor;
                         mat.roughness_factor = cmat->pbr_metallic_roughness.roughness_factor;
                         if (cmat->pbr_metallic_roughness.base_color_texture.texture && cmat->pbr_metallic_roughness.base_color_texture.texture->image) {
-                            if (cmat->pbr_metallic_roughness.base_color_texture.texture->image->uri)
-                                mat.color_map = cmat->pbr_metallic_roughness.base_color_texture.texture->image->uri;
+                            mat.color_map = image_to_path[cmat->pbr_metallic_roughness.base_color_texture.texture->image];
+                        }
+                        if (cmat->pbr_metallic_roughness.metallic_roughness_texture.texture && cmat->pbr_metallic_roughness.metallic_roughness_texture.texture->image) {
+                            std::string path = image_to_path[cmat->pbr_metallic_roughness.metallic_roughness_texture.texture->image];
+                            mat.metallic_map = path;
+                            mat.roughness_map = path;
                         }
                     }
                     if (cmat->normal_texture.texture && cmat->normal_texture.texture->image) {
-                        if (cmat->normal_texture.texture->image->uri)
-                            mat.normal_map = cmat->normal_texture.texture->image->uri;
+                        mat.normal_map = image_to_path[cmat->normal_texture.texture->image];
+                    }
+                    if (cmat->occlusion_texture.texture && cmat->occlusion_texture.texture->image) {
+                        mat.occlusion_map = image_to_path[cmat->occlusion_texture.texture->image];
+                    }
+                    if (cmat->emissive_texture.texture && cmat->emissive_texture.texture->image) {
+                        mat.emissive_map = image_to_path[cmat->emissive_texture.texture->image];
                     }
                     memcpy(mat.emissive_color, cmat->emissive_factor, 12);
+                    
+                    if (cmat->alpha_mode != cgltf_alpha_mode_opaque) {
+                        mat.opacity_map = mat.color_map;
+                    }
+
+                    // Fallback: if not natively PBR, check suffixes or map population
+                    if (mat.material_type != 0) {
+                        if (is_pbr_suffix(mat.color_map) || is_pbr_suffix(mat.normal_map) || 
+                            is_pbr_suffix(mat.metallic_map) || is_pbr_suffix(mat.roughness_map) ||
+                            !mat.metallic_map.empty() || !mat.roughness_map.empty()) {
+                            mat.material_type = 0;
+                        }
+                    }
                 }
                 out.materials.push_back(mat);
             }

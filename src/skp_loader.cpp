@@ -213,18 +213,8 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
             mat.name = mat_name;
             mat.material_type = 1; // Legacy
 
-            // Convention: Ensure extension, add suffixes for norm/gloss     
-            std::string base_tex = mat_name;
-            std::string ext = ".tga";
-            size_t last_dot = base_tex.find_last_of('.');
-            if (last_dot != std::string::npos) {
-                ext = base_tex.substr(last_dot);
-                base_tex = base_tex.substr(0, last_dot);
-            }
-
-            mat.color_map = base_tex + ext;
-            mat.normal_map = base_tex + "_norm" + ext;
-            mat.specular_map = base_tex + "_gloss" + ext;
+            mat.color_map = mat_name;
+            mat.material_type = (is_pbr_suffix(mat.name) || !mat.metallic_map.empty() || !mat.roughness_map.empty()) ? 0 : 1;
 
             mat_name_to_idx[mat_name] = (int)out.materials.size();
             out.materials.push_back(mat);

@@ -39,6 +39,54 @@ static cgltf_accessor* alloc_accessor(cgltf_data* out, cgltf_buffer_view* view, 
     return acc;
 }
 
+static void free_cgltf_data_manual(cgltf_data* data) {
+    if (!data) return;
+    free(data->asset.version);
+    free(data->asset.generator);
+    for (cgltf_size i = 0; i < data->materials_count; ++i) {
+        free(data->materials[i].name);
+        if (data->materials[i].has_pbr_metallic_roughness) {
+            if (data->materials[i].pbr_metallic_roughness.base_color_texture.texture)
+                free(data->materials[i].pbr_metallic_roughness.base_color_texture.texture);
+        }
+    }
+    free(data->materials);
+    for (cgltf_size i = 0; i < data->meshes_count; ++i) {
+        free(data->meshes[i].name);
+        for (cgltf_size p = 0; p < data->meshes[i].primitives_count; ++p) {
+            free(data->meshes[i].primitives[p].attributes);
+        }
+        free(data->meshes[i].primitives);
+    }
+    free(data->meshes);
+    for (cgltf_size i = 0; i < data->nodes_count; ++i) {
+        free(data->nodes[i].name);
+        free(data->nodes[i].children);
+    }
+    free(data->nodes);
+    if (data->skins_count > 0) {
+        free(data->skins[0].joints);
+        free(data->skins);
+    }
+    if (data->scenes_count > 0) {
+        free(data->scenes[0].nodes);
+        free(data->scenes);
+    }
+    for (cgltf_size i = 0; i < data->animations_count; ++i) {
+        free(data->animations[i].name);
+        free(data->animations[i].samplers);
+        free(data->animations[i].channels);
+    }
+    free(data->animations);
+    free(data->accessors);
+    free(data->buffer_views);
+    if (data->buffers_count > 0) {
+        free(data->buffers);
+    }
+    free((void*)data->bin);
+    free(data);
+}
+
 bool write_glb(const Model& model, const char* output_path) {
     std::vector<uint8_t> buffer = write_glb_to_memory(model);
     if (buffer.empty()) return false;
@@ -327,6 +375,8 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     }
     std::remove(tmp_path);
 
-    // Note: Manual cleanup of cgltf_data is skipped to avoid crashing due to deep allocations.
+    // Free the manually constructed cgltf_data to prevent massive memory leaks
+    free_cgltf_data_manual(out);
+
     return result_buf;
 }
