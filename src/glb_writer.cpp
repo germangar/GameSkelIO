@@ -49,12 +49,17 @@ static void free_cgltf_data_manual(cgltf_data* data) {
     free(data->materials);
     for (cgltf_size i = 0; i < data->images_count; ++i) {
         free(data->images[i].uri);
+        free(data->images[i].name);
+        free(data->images[i].mime_type);
     }
     if (data->images_count > 0) free(data->images);
     if (data->textures_count > 0) free(data->textures);
     for (cgltf_size i = 0; i < data->meshes_count; ++i) {
         free(data->meshes[i].name);
         for (cgltf_size p = 0; p < data->meshes[i].primitives_count; ++p) {
+            for (cgltf_size a = 0; a < data->meshes[i].primitives[p].attributes_count; ++a) {
+                free(data->meshes[i].primitives[p].attributes[a].name);
+            }
             free(data->meshes[i].primitives[p].attributes);
         }
         free(data->meshes[i].primitives);
@@ -175,15 +180,55 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
         out->images = (cgltf_image*)calloc(out->images_count, sizeof(cgltf_image));
         out->textures = (cgltf_texture*)calloc(out->textures_count, sizeof(cgltf_texture));
         for (size_t i = 0; i < unique_textures.size(); ++i) {
-            std::string filename = unique_textures[i];
+            const std::string& path = unique_textures[i];
+            
+            // Generate a clean filename for metadata
+            std::string filename = path;
             if (filename.rfind("embedded://", 0) == 0) {
                 filename = filename.substr(11);
             } else {
                 size_t slash = filename.find_last_of("/\\");
                 if (slash != std::string::npos) filename = filename.substr(slash + 1);
             }
-            
-            out->images[i].uri = strdup(filename.c_str());
+            out->images[i].name = strdup(filename.c_str());
+
+            // Check if we have this texture embedded
+            const TextureBuffer* tb = nullptr;
+            for (const auto& t : model.textures) {
+                if (t.original_path == path) {
+                    tb = &t;
+                    break;
+                }
+            }
+
+            if (tb && !tb->data.empty()) {
+                // Embed in GLB buffer
+                size_t off = buf.size();
+                append_to_buffer(buf, &out->buffers[0], tb->data.data(), tb->data.size());
+                
+                // Create buffer view for the image
+                out->buffer_views = (cgltf_buffer_view*)realloc(out->buffer_views, (out->buffer_views_count + 1) * sizeof(cgltf_buffer_view));
+                cgltf_buffer_view* view = &out->buffer_views[out->buffer_views_count++];
+                memset(view, 0, sizeof(cgltf_buffer_view));
+                view->buffer = &out->buffers[0];
+                view->offset = off;
+                view->size = tb->data.size();
+                view->type = cgltf_buffer_view_type_invalid; // Standard for images
+
+                out->images[i].buffer_view = view;
+                // Identify mime type from extension
+                std::string ext = filename;
+                size_t dot = ext.find_last_of('.');
+                if (dot != std::string::npos) {
+                    ext = ext.substr(dot + 1);
+                    for (char& c : ext) c = (char)tolower(c);
+                    if (ext == "png") out->images[i].mime_type = strdup("image/png");
+                    else if (ext == "jpg" || ext == "jpeg") out->images[i].mime_type = strdup("image/jpeg");
+                }
+            } else {
+                // External reference
+                out->images[i].uri = strdup(filename.c_str());
+            }
             out->textures[i].image = &out->images[i];
         }
     }

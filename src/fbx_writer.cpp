@@ -254,6 +254,14 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             (*vid->insert(new Fbx::Record("FileName")))->properties().insert(new Fbx::Property(filename));
             (*vid->insert(new Fbx::Record("RelativeFilename")))->properties().insert(new Fbx::Property(filename));
 
+            // Embed binary data if available
+            for (const auto& t : in.textures) {
+                if (t.original_path == path && !t.data.empty()) {
+                    (*vid->insert(new Fbx::Record("Content")))->properties().insert(new Fbx::Property(t.data.data(), (uint32_t)t.data.size()));
+                    break;
+                }
+            }
+
             Fbx::Record* tex = new Fbx::Record("Texture", objs);
             tex->properties().insert(new Fbx::Property(tex_id));
             tex->properties().insert(new Fbx::Property(sanitize(filename) + std::string("\x00\x01", 2) + "Texture"));
@@ -755,6 +763,25 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
 
     if (write_mesh) {
         for (const auto& path : unique_textures) add_c("OO", texture_to_video_id[path], texture_to_id[path]);
+        
+        for (size_t mi = 0; mi < in.materials.size(); ++mi) {
+            const auto& mids = material_ids[mi];
+            const auto& m = in.materials[mi];
+            if (m.material_type == 0) { // PBR
+                if (mids.color_id) add_c("OP", mids.color_id, mids.id, "DiffuseColor");
+                if (mids.metallic_id) add_c("OP", mids.metallic_id, mids.id, "Metallic");
+                if (mids.rough_id) add_c("OP", mids.rough_id, mids.id, "Roughness");
+            } else { // Legacy
+                if (mids.color_id) add_c("OP", mids.color_id, mids.id, "DiffuseColor");
+                if (mids.spec_id) add_c("OP", mids.spec_id, mids.id, "SpecularColor");
+                if (mids.shininess_id) add_c("OP", mids.shininess_id, mids.id, "ShininessExponent");
+            }
+            if (mids.normal_id) add_c("OP", mids.normal_id, mids.id, "NormalMap");
+            if (mids.emissive_id) add_c("OP", mids.emissive_id, mids.id, "EmissiveColor");
+            if (mids.opacity_id) add_c("OP", mids.opacity_id, mids.id, "TransparentColor");
+            if (mids.occ_id) add_c("OP", mids.occ_id, mids.id, "AmbientColor");
+        }
+
         for (size_t mi = 0; mi < in.meshes.size(); ++mi) {
             add_c("OO", mesh_model_ids[mi], 0);
             add_c("OO", mesh_geom_ids[mi], mesh_model_ids[mi]);
