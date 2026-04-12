@@ -2,26 +2,28 @@
 
 GameSkelIO is a high-performance C-compatible library designed for **3D skeletal model and animation transcoding**. It serves as a middleware layer between modern 3D formats (like glTF and FBX) and legacy or specialized game engine formats (like IQM and SKM).
 
-The library is designed with a **memory-first architecture**, allowing it to be easily integrated into game engine Virtual File Systems (VFS) without disk I/O overhead.
+The library is currently at **API Version 4**.
 
 ## Core Architecture
 GameSkelIO has evolved from a single-standard library to a flexible, automated transcoding engine.
 
 - **Self-Describing Models**: The `gs_model` struct contains `orientation` and `winding` fields. Loaders populate these fields so every model is self-aware of its native coordinate system.
+- **Embedded Texture Support**: The root `gs_model` struct includes a `textures` array containing raw binary image data (PNG, JPG) extracted from GLB or FBX containers.
 - **"Liberated" Loaders**: Loaders (IQM, SKM, GLB, FBX) read data in its native format without forcing a conversion to a single internal standard.
-- **"Automated" Writers**: Writers automatically request the standard orientation for their target format (e.g., Y-Up for GLB, Z-Up for IQM) by performing a safe, in-place conversion on a local copy of the model before export.
+- **"Automated" Writers**: Writers automatically request the standard orientation for their target format (e.g., Y-Up for GLB, Z-Up for IQM).
 - **Transparent C API**: The public C functions work on temporary C++ copies, ensuring that the user's original `gs_model*` is never mutated by a write operation.
 
 ## Key Features
 
 - **Memory-First API**: Load and export models directly from/to memory buffers.
+- **Embedded Texture Retrieval**: Access raw image bytes stored within model files via the `gsk_get_embedded_texture` API.
 - **Advanced Orientation API**: Perform in-place orientation and winding order swaps on loaded models.
 - **On-Demand Animation Baking**: Convert sparse, time-based animation tracks into dense, frame-based buffers for engines that require it.
 - **Format Support**:
   - **IQM**: Full Read/Write (Automates conversion to its Z-Up, CW standard).
-  - **GLB/glTF**: Full Read/Write (Automates conversion to its Y-Up, CCW standard).
-  - **FBX (Binary)**: Full Read/Write (Automates conversion to its Y-Up, CCW standard).
-  - **SKM/SKP**: Read-only support for legacy Warsow/Warfork formats.
+  - **GLB/glTF**: Full Read/Write (Strictly writes PBR Metallic-Roughness for maximum compatibility).
+  - **FBX (Binary)**: Full Read/Write (Detects native PBR shaders and orientation axes).
+  - **SKM/SKP**: Read-only support (Automatically upgraded to PBR materials when exported to GLB).
 
 ---
 
@@ -53,13 +55,11 @@ This example shows a simple transcoding operation from a GLB file to an IQM file
 gs_model* model = gsk_load_glb("player_input.glb");
 
 if (model) {
-    printf("Model loaded with orientation: %d
-", model->orientation);
+    printf("Model loaded with orientation: %d\n", model->orientation);
 
     // 2. Save the model. The writer automatically handles the conversion.
     if (gsk_write_iqm("player_output.iqm", model, false)) {
-        printf("IQM saved successfully.
-");
+        printf("IQM saved successfully.\n");
     }
 
     // 3. Cleanup
@@ -67,8 +67,33 @@ if (model) {
 }
 ```
 
-### 2. Advanced Feature: Manual Orientation Control
-You can manually convert a model's orientation in-place after loading it. This is useful for standardizing assets before they enter your engine's main pipeline.
+### 2. Retrieving Embedded Textures
+GLB and FBX files often contain embedded textures. You can retrieve the raw binary data (e.g., PNG/JPG bytes) directly from the loaded model.
+
+```c
+#include "gameskelio.h"
+#include <stdio.h>
+
+gs_model* model = gsk_load_glb("character_with_textures.glb");
+
+if (model) {
+    // Get the color map path from the first material
+    const char* tex_path = model->materials[0].color_map;
+    
+    size_t data_size = 0;
+    const void* image_bytes = gsk_get_embedded_texture(model, tex_path, &data_size);
+
+    if (image_bytes) {
+        printf("Found embedded texture: %s (%zu bytes)\n", tex_path, data_size);
+        // You can now pass image_bytes to stbi_load_from_memory() or your engine's loader
+    }
+
+    gsk_free_model(model);
+}
+```
+
+### 3. Advanced Feature: Manual Orientation Control
+You can manually convert a model's orientation in-place after loading it.
 
 ```c
 #include "gameskelio.h"
@@ -76,23 +101,18 @@ You can manually convert a model's orientation in-place after loading it. This i
 gs_model* model = gsk_load_fbx("character.fbx");
 
 if (model) {
-    printf("Original orientation: %d
-", model->orientation);
+    printf("Original orientation: %d\n", model->orientation);
 
     // Manually convert the model to Blender's standard Z-Up coordinate system
     gsk_convert_orientation(model, GS_Z_UP_RIGHTHANDED, GS_WINDING_CW);
 
-    printf("New orientation: %d
-", model->orientation);
+    printf("New orientation: %d\n", model->orientation);
     
-    // Now you can proceed with this standardized model...
-    // gsk_write_glb("standardized_character.glb", model);
-
     gsk_free_model(model);
 }
 ```
 
-### 3. Advanced Feature: Baking Animations
+### 4. Advanced Feature: Baking Animations
 For engines that use frame-based animation systems, you can "bake" any sparse animation into a dense buffer of frame data.
 
 ```c
@@ -107,15 +127,8 @@ if (model && model->num_animations > 0) {
     gs_baked_anim* baked_anim = gsk_bake_animation(model, anim_idx, fps);
 
     if (baked_anim) {
-        printf("Animation baked successfully!
-");
-        printf("Frames: %u, Joints: %u, FPS: %.1f
-", baked_anim->num_frames, baked_anim->num_joints, baked_anim->fps);
-
-        // The data is a flat array of floats: [T.xyz, R.xyzw, S.xyz] per joint, per frame
-        // float* frame_data = baked_anim->data;
-        
-        // Use the baked data in your engine...
+        printf("Animation baked successfully!\n");
+        printf("Frames: %u, Joints: %u, FPS: %.1f\n", baked_anim->num_frames, baked_anim->num_joints, baked_anim->fps);
 
         // IMPORTANT: The baked animation is a new allocation and must be freed
         gsk_free_baked_anim(baked_anim);
