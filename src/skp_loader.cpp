@@ -213,8 +213,9 @@ bool load_skm_from_memory(const void* skm_data, size_t skm_size, const void* skp
             mat.name = mat_name;
             mat.material_type = 1; // Legacy
 
-            mat.color_map = mat_name;
-            mat.material_type = (is_pbr_suffix(mat.name) || !mat.metallic_map.empty() || !mat.roughness_map.empty()) ? 0 : 1;
+            if (has_pbr_suffixes(mat)) {
+                mat.material_type = 0;
+            }
 
             mat_name_to_idx[mat_name] = (int)out.materials.size();
             out.materials.push_back(mat);

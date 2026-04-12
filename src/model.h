@@ -56,7 +56,7 @@ struct AnimationDef {
 
 struct Material {
     std::string name;
-    int material_type = 0; // 0 for PBR, 1 for Legacy
+    int material_type = 1; // 0 for PBR, 1 for Legacy
 
     std::string color_map;
     std::string normal_map;
@@ -75,6 +75,15 @@ struct Material {
     float roughness_factor = 1.0f;
     float emissive_factor = 1.0f;
 };
+
+inline bool has_pbr_suffixes(const Material& mat) {
+    return is_pbr_suffix(mat.name) ||
+           is_pbr_suffix(mat.color_map) || is_pbr_suffix(mat.normal_map) || 
+           is_pbr_suffix(mat.metallic_map) || is_pbr_suffix(mat.roughness_map) || 
+           is_pbr_suffix(mat.specular_map) || is_pbr_suffix(mat.shininess_map) ||
+           is_pbr_suffix(mat.emissive_map) || is_pbr_suffix(mat.occlusion_map) || 
+           is_pbr_suffix(mat.opacity_map);
+}
 
 struct Mesh {
     std::string name;

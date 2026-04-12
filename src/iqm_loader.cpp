@@ -87,8 +87,11 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
                 mat_idx = (int)out.materials.size();
                 Material mat;
                 mat.name = mat_name;
-                mat.color_map = mat_name;
-                mat.material_type = (is_pbr_suffix(mat_name) || !mat.metallic_map.empty() || !mat.roughness_map.empty()) ? 0 : 1;
+                // color_map is unpopulated because IQM materials are usually just names, not file paths.
+                mat.material_type = 1; // Default to Legacy
+                if (has_pbr_suffixes(mat)) {
+                    mat.material_type = 0;
+                }
                 out.materials.push_back(mat);
             }
 

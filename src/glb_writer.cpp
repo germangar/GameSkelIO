@@ -45,12 +45,13 @@ static void free_cgltf_data_manual(cgltf_data* data) {
     free(data->asset.generator);
     for (cgltf_size i = 0; i < data->materials_count; ++i) {
         free(data->materials[i].name);
-        if (data->materials[i].has_pbr_metallic_roughness) {
-            if (data->materials[i].pbr_metallic_roughness.base_color_texture.texture)
-                free(data->materials[i].pbr_metallic_roughness.base_color_texture.texture);
-        }
     }
     free(data->materials);
+    for (cgltf_size i = 0; i < data->images_count; ++i) {
+        free(data->images[i].uri);
+    }
+    if (data->images_count > 0) free(data->images);
+    if (data->textures_count > 0) free(data->textures);
     for (cgltf_size i = 0; i < data->meshes_count; ++i) {
         free(data->meshes[i].name);
         for (cgltf_size p = 0; p < data->meshes[i].primitives_count; ++p) {
@@ -150,6 +151,51 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
 
     out->buffer_views[index_view_idx].offset = buf.size();
 
+    // Collect unique textures
+    std::vector<std::string> unique_textures;
+    auto add_unique_tex = [&](const std::string& path) {
+        if (!path.empty() && std::find(unique_textures.begin(), unique_textures.end(), path) == unique_textures.end()) {
+            unique_textures.push_back(path);
+        }
+    };
+    for (const auto& m : model.materials) {
+        add_unique_tex(m.color_map);
+        add_unique_tex(m.normal_map);
+        add_unique_tex(m.metallic_map);
+        add_unique_tex(m.roughness_map);
+        add_unique_tex(m.specular_map);
+        add_unique_tex(m.shininess_map);
+        add_unique_tex(m.emissive_map);
+        add_unique_tex(m.occlusion_map);
+    }
+
+    out->images_count = (cgltf_size)unique_textures.size();
+    out->textures_count = (cgltf_size)unique_textures.size();
+    if (out->images_count > 0) {
+        out->images = (cgltf_image*)calloc(out->images_count, sizeof(cgltf_image));
+        out->textures = (cgltf_texture*)calloc(out->textures_count, sizeof(cgltf_texture));
+        for (size_t i = 0; i < unique_textures.size(); ++i) {
+            std::string filename = unique_textures[i];
+            if (filename.rfind("embedded://", 0) == 0) {
+                filename = filename.substr(11);
+            } else {
+                size_t slash = filename.find_last_of("/\\");
+                if (slash != std::string::npos) filename = filename.substr(slash + 1);
+            }
+            
+            out->images[i].uri = strdup(filename.c_str());
+            out->textures[i].image = &out->images[i];
+        }
+    }
+
+    auto get_texture = [&](const std::string& path) -> cgltf_texture* {
+        if (path.empty()) return nullptr;
+        for (size_t i = 0; i < unique_textures.size(); ++i) {
+            if (unique_textures[i] == path) return &out->textures[i];
+        }
+        return nullptr;
+    };
+
     out->materials_count = (cgltf_size)model.materials.size();
     if (out->materials_count > 0) {
         out->materials = (cgltf_material*)calloc(out->materials_count, sizeof(cgltf_material));
@@ -157,10 +203,26 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
             cgltf_material* mat = &out->materials[i];
             const Material& src = model.materials[i];
             mat->name = sanitize_name(src.name.c_str());
+            
+            // GLTF 2.0 strictly prefers PBR Metallic-Roughness. 
+            // Windows 3D Viewer does not support Legacy (KHR_materials_pbrSpecularGlossiness) well.
             mat->has_pbr_metallic_roughness = true;
             memcpy(mat->pbr_metallic_roughness.base_color_factor, src.base_color, 16);
-            mat->pbr_metallic_roughness.metallic_factor = src.metallic_factor;
-            mat->pbr_metallic_roughness.roughness_factor = src.roughness_factor;
+            
+            if (src.material_type == 0) { // PBR
+                mat->pbr_metallic_roughness.metallic_factor = src.metallic_factor;
+                mat->pbr_metallic_roughness.roughness_factor = src.roughness_factor;
+                mat->pbr_metallic_roughness.metallic_roughness_texture.texture = get_texture(src.metallic_map);
+            } else { // Legacy Fallback to PBR
+                mat->pbr_metallic_roughness.metallic_factor = 0.0f; // Non-metal
+                mat->pbr_metallic_roughness.roughness_factor = 1.0f - src.roughness_factor; // Glossiness -> Roughness
+                // We cannot map specular_map directly to metallic_roughness without conversion, so we leave it out.
+            }
+            
+            mat->pbr_metallic_roughness.base_color_texture.texture = get_texture(src.color_map);
+            mat->normal_texture.texture = get_texture(src.normal_map);
+            mat->occlusion_texture.texture = get_texture(src.occlusion_map);
+            mat->emissive_texture.texture = get_texture(src.emissive_map);
             memcpy(mat->emissive_factor, src.emissive_color, 12);
         }
     }

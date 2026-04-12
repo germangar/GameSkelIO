@@ -238,21 +238,29 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             texture_to_id[path] = tex_id;
             texture_to_video_id[path] = vid_id;
             
+            std::string filename = path;
+            if (filename.rfind("embedded://", 0) == 0) {
+                filename = filename.substr(11);
+            } else {
+                size_t slash = filename.find_last_of("/\\");
+                if (slash != std::string::npos) filename = filename.substr(slash + 1);
+            }
+
             Fbx::Record* vid = new Fbx::Record("Video", objs);
             vid->properties().insert(new Fbx::Property(vid_id));
-            vid->properties().insert(new Fbx::Property(sanitize(path) + std::string("\x00\x01", 2) + "Video"));
+            vid->properties().insert(new Fbx::Property(sanitize(filename) + std::string("\x00\x01", 2) + "Video"));
             vid->properties().insert(new Fbx::Property("Clip"));
             (*vid->insert(new Fbx::Record("Type")))->properties().insert(new Fbx::Property("Clip"));
-            (*vid->insert(new Fbx::Record("FileName")))->properties().insert(new Fbx::Property(path));
-            (*vid->insert(new Fbx::Record("RelativeFilename")))->properties().insert(new Fbx::Property(path));
+            (*vid->insert(new Fbx::Record("FileName")))->properties().insert(new Fbx::Property(filename));
+            (*vid->insert(new Fbx::Record("RelativeFilename")))->properties().insert(new Fbx::Property(filename));
 
             Fbx::Record* tex = new Fbx::Record("Texture", objs);
             tex->properties().insert(new Fbx::Property(tex_id));
-            tex->properties().insert(new Fbx::Property(sanitize(path) + std::string("\x00\x01", 2) + "Texture"));
+            tex->properties().insert(new Fbx::Property(sanitize(filename) + std::string("\x00\x01", 2) + "Texture"));
             tex->properties().insert(new Fbx::Property(""));
             (*tex->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)202));
-            (*tex->insert(new Fbx::Record("FileName")))->properties().insert(new Fbx::Property(path));
-            (*tex->insert(new Fbx::Record("RelativeFilename")))->properties().insert(new Fbx::Property(path));
+            (*tex->insert(new Fbx::Record("FileName")))->properties().insert(new Fbx::Property(filename));
+            (*tex->insert(new Fbx::Record("RelativeFilename")))->properties().insert(new Fbx::Property(filename));
             Fbx::Record* p70_tex = new Fbx::Record("Properties70", tex);
             add_prop70(p70_tex, "CurrentTextureBlendMode", "enum", "", "", (int32_t)0);
             add_prop70(p70_tex, "UVSet", "KString", "", "", "map1");
@@ -755,16 +763,6 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             if (mat_idx >= 0 && mat_idx < (int)in.materials.size()) {
                 const auto& mids = material_ids[mat_idx];
                 add_c("OO", mids.id, mesh_model_ids[mi]);
-                
-                if (mids.color_id) add_c("OP", mids.color_id, mids.id, "DiffuseColor");
-                if (mids.normal_id) add_c("OP", mids.normal_id, mids.id, "NormalMap");
-                if (mids.metallic_id) add_c("OP", mids.metallic_id, mids.id, "MetallicColor");
-                if (mids.rough_id) add_c("OP", mids.rough_id, mids.id, "RoughnessColor");
-                if (mids.emissive_id) add_c("OP", mids.emissive_id, mids.id, "EmissiveColor");
-                if (mids.opacity_id) add_c("OP", mids.opacity_id, mids.id, "TransparentColor");
-                if (mids.occ_id) add_c("OP", mids.occ_id, mids.id, "AmbientColor");
-                if (mids.spec_id) add_c("OP", mids.spec_id, mids.id, "SpecularColor");
-                if (mids.shininess_id) add_c("OP", mids.shininess_id, mids.id, "ShininessExponent");
             }
 
             if (!mesh_valid_cluster_ids[mi].empty()) {
