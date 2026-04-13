@@ -50,9 +50,9 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         std::string virtual_path;
         if (content.size > 0) {
             if (tex->name.length > 0) {
-                virtual_path = "embedded://" + std::string(tex->name.data);
+                virtual_path = "embedded://" + std::string(tex->name.data, tex->name.length);
             } else if (tex->filename.length > 0) {
-                std::string full_path = tex->filename.data;
+                std::string full_path = std::string(tex->filename.data, tex->filename.length);
                 size_t last_slash = full_path.find_last_of("\\/");
                 if (last_slash != std::string::npos) {
                     virtual_path = "embedded://" + full_path.substr(last_slash + 1);
@@ -87,9 +87,9 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         } else {
             // Not embedded, prefer the relative path stored in the FBX
             if (tex->relative_filename.length > 0) {
-                texture_to_path[tex] = tex->relative_filename.data;
+                texture_to_path[tex] = std::string(tex->relative_filename.data, tex->relative_filename.length);
             } else {
-                texture_to_path[tex] = tex->filename.data;
+                texture_to_path[tex] = std::string(tex->filename.data, tex->filename.length);
             }
         }
     }
@@ -128,7 +128,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
     for (size_t i = 0; i < scene->nodes.count; ++i) {
         ufbx_node* node = scene->nodes[i];
         Joint j;
-        j.name = node->name.data;
+        j.name = std::string(node->name.data, node->name.length);
         j.parent = 0; // Default parent is our new world root
         
         float t[3] = { (float)node->local_transform.translation.x, (float)node->local_transform.translation.y, (float)node->local_transform.translation.z };
@@ -190,14 +190,14 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         }
 
         Mesh out_mesh;
-        out_mesh.name = fmesh->name.data;
+        out_mesh.name = std::string(fmesh->name.data, fmesh->name.length);
         out_mesh.first_vertex = (uint32_t)out.positions.size() / 3;
         out_mesh.first_triangle = (uint32_t)out.indices.size() / 3;
         uint32_t vertex_counter = 0;
 
         std::string mat_name = "default";
         if (fmesh->materials.count > 0 && fmesh->materials[0]) {
-            mat_name = fmesh->materials[0]->name.data;
+            mat_name = std::string(fmesh->materials[0]->name.data, fmesh->materials[0]->name.length);
         }
 
         if (material_map.find(mat_name) == material_map.end()) {
@@ -209,7 +209,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
                 auto get_tex_path = [&](ufbx_texture* tex) -> std::string {
                     if (!tex) return "";
                     if (texture_to_path.count(tex)) return texture_to_path[tex];
-                    return tex->filename.data;
+                    return std::string(tex->filename.data, tex->filename.length);
                 };
 
                 mat.material_type = fmat->features.pbr.enabled ? 0 : 1;
@@ -374,7 +374,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         if (!baked_anim) continue;
 
         AnimationDef ad;
-        ad.name = stack->name.data;
+        ad.name = std::string(stack->name.data, stack->name.length);
         ad.duration = baked_anim->playback_duration;
         ad.bones.resize(out.joints.size());
 
