@@ -42,18 +42,18 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
         cgltf_image* img = &gdata->images[i];
         
         std::string virtual_path;
-        if (img->name && strlen(img->name) > 0) {
-            virtual_path = "embedded://" + std::string(img->name);
-        } else if (img->uri && strncmp(img->uri, "data:", 5) != 0) {
-            std::string uri = img->uri;
-            size_t last_slash = uri.find_last_of("\\/");
-            if (last_slash != std::string::npos) {
-                virtual_path = "embedded://" + uri.substr(last_slash + 1);
+        bool is_embedded = (img->buffer_view != nullptr);
+
+        if (is_embedded) {
+            if (img->name && strlen(img->name) > 0) {
+                virtual_path = "embedded://" + std::string(img->name);
             } else {
-                virtual_path = "embedded://" + uri;
+                virtual_path = "embedded://texture_" + std::to_string(i);
             }
+        } else if (img->uri) {
+            virtual_path = img->uri;
         } else {
-            virtual_path = "embedded://texture_" + std::to_string(i);
+            virtual_path = "texture_" + std::to_string(i);
         }
 
         // Ensure uniqueness
@@ -73,7 +73,7 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
         
         image_to_path[img] = virtual_path;
 
-        if (img->buffer_view) {
+        if (is_embedded) {
             TextureBuffer tb;
             tb.original_path = virtual_path;
             tb.data.resize(img->buffer_view->size);

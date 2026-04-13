@@ -170,14 +170,9 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
         }
     };
     for (const auto& m : model.materials) {
-        add_unique_tex(m.color_map);
-        add_unique_tex(m.normal_map);
-        add_unique_tex(m.metallic_map);
-        add_unique_tex(m.roughness_map);
-        add_unique_tex(m.specular_map);
-        add_unique_tex(m.shininess_map);
-        add_unique_tex(m.emissive_map);
-        add_unique_tex(m.occlusion_map);
+        add_unique_tex(m.color_map); add_unique_tex(m.normal_map); add_unique_tex(m.metallic_map);
+        add_unique_tex(m.roughness_map); add_unique_tex(m.specular_map); add_unique_tex(m.shininess_map);
+        add_unique_tex(m.emissive_map); add_unique_tex(m.occlusion_map); add_unique_tex(m.opacity_map);
     }
 
     out->images_count = (cgltf_size)unique_textures.size();

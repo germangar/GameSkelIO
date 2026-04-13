@@ -85,8 +85,12 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
             out.textures.push_back(tb);
             texture_to_path[tex] = virtual_path;
         } else {
-            // Not embedded, use the filename as is or basename if possible
-            texture_to_path[tex] = tex->filename.data;
+            // Not embedded, prefer the relative path stored in the FBX
+            if (tex->relative_filename.length > 0) {
+                texture_to_path[tex] = tex->relative_filename.data;
+            } else {
+                texture_to_path[tex] = tex->filename.data;
+            }
         }
     }
 
