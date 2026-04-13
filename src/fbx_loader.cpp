@@ -185,6 +185,9 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         // Since vertices are baked to world space, and world_root is identity, 
         // the shader will render them exactly at their baked world positions.
         int default_joint = 0; 
+        if (mesh_node && node_to_joint.count(mesh_node)) {
+            default_joint = node_to_joint[mesh_node];
+        }
 
         Mesh out_mesh;
         out_mesh.name = fmesh->name.data;
