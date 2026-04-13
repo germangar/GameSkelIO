@@ -106,15 +106,39 @@ bool write_glb(const Model& model, const char* output_path) {
 }
 
 std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
-    Model model = model_in; // Create local copy
-    // Liberate the GLB writer: automatically convert to GLB-standard orientation
+    Model model = model_in;
     convert_orientation(model, GS_Y_UP_RIGHTHANDED, GS_WINDING_CCW);
-
-    // 1. We use cgltf_write_file to a temporary file, then read it back.
-    // This is the most robust way to support GLB memory export without 
-    // manually implementing the GLB container logic.
     char tmp_path[L_tmpnam];
     if (!tmpnam(tmp_path)) return {};
+
+    // Surgical Fix: Bake rigid vertices into joint-local space
+    model.compute_bind_pose();
+    for (size_t i = 0; i < model.meshes.size(); ++i) {
+        int aj = model.meshes[i].attached_joint;
+        if (aj >= 0 && aj < (int)model.world_matrices.size()) {
+            mat4 inv_joint_world = mat4_invert(model.world_matrices[aj]);
+            mat4 inv_joint_rot = inv_joint_world;
+            inv_joint_rot.m[12] = inv_joint_rot.m[13] = inv_joint_rot.m[14] = 0.0f;
+            uint32_t first = model.meshes[i].first_vertex;
+            uint32_t count = model.meshes[i].num_vertexes;
+            if (first * 3 + count * 3 <= (uint32_t)model.positions.size()) {
+                float* p = &model.positions[first * 3];
+                for (uint32_t v = 0; v < count; ++v) {
+                    float v_in[3] = { p[v*3], p[v*3+1], p[v*3+2] };
+                    float v_out[3]; mat4_mul_vec3(inv_joint_world, v_in, v_out);
+                    memcpy(&p[v*3], v_out, 12);
+                }
+            }
+            if (!model.normals.empty() && first * 3 + count * 3 <= (uint32_t)model.normals.size()) {
+                float* n = &model.normals[first * 3];
+                for (uint32_t v = 0; v < count; ++v) {
+                    float n_in[3] = { n[v*3], n[v*3+1], n[v*3+2] };
+                    float n_out[3]; mat4_mul_vec3(inv_joint_rot, n_in, n_out);
+                    memcpy(&n[v*3], n_out, 12);
+                }
+            }
+        }
+    }
 
     std::vector<char> buf;
     cgltf_data* out = (cgltf_data*)calloc(1, sizeof(cgltf_data));
@@ -323,10 +347,12 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     }
     out->buffer_views[index_view_idx].size = buf.size() - out->buffer_views[index_view_idx].offset;
 
+    // IBMs: We FORCE the use of computed IBMs based on the exported rest pose.
+    // This ensures consistency and prevents the "crunched" look from FBX bind-pose mismatches.
     cgltf_accessor* ibm_acc = nullptr;
     if (num_joints > 0 && ibm_view_idx != -1) {
         out->buffer_views[ibm_view_idx].offset = buf.size();
-        const std::vector<mat4>& source_ibms = model.ibms.empty() ? model.computed_ibms : model.ibms;
+        const std::vector<mat4>& source_ibms = model.computed_ibms;
         append_to_buffer(buf, &out->buffers[0], source_ibms.data(), source_ibms.size() * sizeof(mat4));
         out->buffer_views[ibm_view_idx].size = buf.size() - out->buffer_views[ibm_view_idx].offset;
         ibm_acc = alloc_accessor(out, &out->buffer_views[ibm_view_idx], cgltf_type_mat4, cgltf_component_type_r_32f, source_ibms.size(), 0);
@@ -336,7 +362,7 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     out->nodes = (cgltf_node*)calloc(out->nodes_count, sizeof(cgltf_node));
     
     cgltf_node* scene_root = &out->nodes[0];
-    scene_root->name = strdup("scene_root");
+    scene_root->name = strdup("RootNode");
 
     cgltf_node* joints_start = &out->nodes[1];
     for (size_t i = 0; i < num_joints; ++i) {
@@ -348,19 +374,27 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
         n->has_translation = n->has_rotation = n->has_scale = true;
     }
     
+    std::vector<int> cur_joint_child(num_joints, 0);
+    
     if (num_joints > 0) {
         std::vector<int> children_counts(num_joints, 0);
         for (size_t i = 0; i < num_joints; ++i) if (model.joints[i].parent >= 0) children_counts[model.joints[i].parent]++;
-        for (size_t i = 0; i < num_joints; ++i) if (children_counts[i] > 0) {
-            joints_start[i].children = (cgltf_node**)calloc(children_counts[i], sizeof(cgltf_node*));
-            joints_start[i].children_count = (cgltf_size)children_counts[i];
+        // Surgical Fix: Count meshes parented to joints
+        for (size_t i = 0; i < num_meshes; ++i) {
+            int aj = model.meshes[i].attached_joint;
+            if (aj >= 0 && aj < (int)num_joints) children_counts[aj]++;
         }
-        std::vector<int> current_children(num_joints, 0);
+        for (size_t i = 0; i < num_joints; ++i) {
+            if (children_counts[i] > 0) {
+                joints_start[i].children = (cgltf_node**)calloc(children_counts[i], sizeof(cgltf_node*));
+                joints_start[i].children_count = (cgltf_size)children_counts[i];
+            }
+        }
         int root_joints_count = 0;
         for (size_t i = 0; i < num_joints; ++i) {
             int p = model.joints[i].parent;
             if (p >= 0) {
-                joints_start[p].children[current_children[p]++] = &joints_start[i];
+                joints_start[p].children[cur_joint_child[p]++] = &joints_start[i];
                 joints_start[i].parent = &joints_start[p];
             } else {
                 root_joints_count++;
@@ -383,7 +417,7 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
         for(size_t i=0; i<num_joints; ++i) out->skins[0].joints[i] = &joints_start[i];
         out->skins[0].inverse_bind_matrices = ibm_acc;
         // The skeleton root for the skin is the scene_root
-        out->skins[0].skeleton = scene_root;
+        out->skins[0].skeleton = (num_joints > 0) ? &joints_start[0] : scene_root;
     }
 
     cgltf_node* mesh_nodes = &out->nodes[num_joints + 1];
@@ -392,11 +426,20 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     for (size_t i = 0; i < num_meshes; ++i) {
         mesh_nodes[i].mesh = &out->meshes[i];
         mesh_nodes[i].name = sanitize_name(model.meshes[i].name.c_str());
-        if (num_joints > 0) {
-            mesh_nodes[i].skin = &out->skins[0];
+        
+        int aj = model.meshes[i].attached_joint;
+        if (aj >= 0 && aj < (int)num_joints) {
+            // Surgical Fix: Parent to joint and disable skinning
+            joints_start[aj].children[cur_joint_child[aj]++] = &mesh_nodes[i];
+            mesh_nodes[i].parent = &joints_start[aj];
+            mesh_nodes[i].skin = nullptr;
+        } else {
+            if (num_joints > 0) {
+                mesh_nodes[i].skin = &out->skins[0];
+            }
+            mesh_nodes[i].parent = scene_root;
+            scene_root->children[scene_root->children_count++] = &mesh_nodes[i];
         }
-        mesh_nodes[i].parent = scene_root;
-        scene_root->children[scene_root->children_count++] = &mesh_nodes[i];
     }
 
     out->scenes_count = 1;

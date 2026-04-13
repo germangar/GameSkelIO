@@ -74,6 +74,7 @@ typedef struct gs_mesh {
     uint32_t num_vertexes;
     uint32_t first_triangle;
     uint32_t num_triangles;
+    int attached_joint;
 } gs_mesh;
 
 typedef enum gs_material_type {

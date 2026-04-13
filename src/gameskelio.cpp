@@ -97,6 +97,7 @@ static gs_model* model_cpp_to_c(const Model& cpp) {
             c->meshes[i].num_vertexes = cpp.meshes[i].num_vertexes;
             c->meshes[i].first_triangle = cpp.meshes[i].first_triangle;
             c->meshes[i].num_triangles = cpp.meshes[i].num_triangles;
+            c->meshes[i].attached_joint = cpp.meshes[i].attached_joint;
         }
     }
 
@@ -281,6 +282,7 @@ static Model model_c_to_cpp(const gs_model* c) {
             cpp.meshes[i].num_vertexes = c->meshes[i].num_vertexes;
             cpp.meshes[i].first_triangle = c->meshes[i].first_triangle;
             cpp.meshes[i].num_triangles = c->meshes[i].num_triangles;
+            cpp.meshes[i].attached_joint = c->meshes[i].attached_joint;
         }
     }
 

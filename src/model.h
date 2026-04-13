@@ -90,6 +90,7 @@ struct Mesh {
     int material_idx = -1;
     uint32_t first_vertex, num_vertexes;
     uint32_t first_triangle, num_triangles;
+    int attached_joint = -1;
 };
 
 struct TextureBuffer {

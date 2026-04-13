@@ -112,9 +112,15 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
     out.winding = GS_WINDING_CCW; // FBX is CCW by convention
 
     // Phase 1 - Extract Skeleton (Full Hierarchy)
-    // We add an explicit IDENTITY ROOT at index 0.
-    // This ensures that unskinned meshes baked to world space can be attached to an 
-    // identity transform, preventing double-transformation from FBX root scaling.
+    // We search for a Bind Pose to use as our initial "Rest Pose" (the "None" state).
+    ufbx_pose* bind_pose = nullptr;
+    for (size_t i = 0; i < scene->poses.count; ++i) {
+        if (scene->poses[i]->is_bind_pose) {
+            bind_pose = scene->poses[i];
+            break;
+        }
+    }
+
     std::map<ufbx_node*, int> node_to_joint;
     
     Joint root;
@@ -130,10 +136,23 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         Joint j;
         j.name = std::string(node->name.data, node->name.length);
         j.parent = 0; // Default parent is our new world root
-        
-        float t[3] = { (float)node->local_transform.translation.x, (float)node->local_transform.translation.y, (float)node->local_transform.translation.z };
-        float r[4] = { (float)node->local_transform.rotation.x, (float)node->local_transform.rotation.y, (float)node->local_transform.rotation.z, (float)node->local_transform.rotation.w };
-        float s[3] = { (float)node->local_transform.scale.x, (float)node->local_transform.scale.y, (float)node->local_transform.scale.z };
+
+        // Default transforms from scene state
+        ufbx_transform transform = node->local_transform;
+
+        // Surgical Fix: If an explicit bind pose exists, prioritize its transforms
+        if (bind_pose) {
+            for (size_t pi = 0; pi < bind_pose->bone_poses.count; ++pi) {
+                if (bind_pose->bone_poses[pi].bone_node == node) {
+                    transform = ufbx_matrix_to_transform(&bind_pose->bone_poses[pi].bone_to_parent);
+                    break;
+                }
+            }
+        }
+
+        float t[3] = { (float)transform.translation.x, (float)transform.translation.y, (float)transform.translation.z };
+        float r[4] = { (float)transform.rotation.x, (float)transform.rotation.y, (float)transform.rotation.z, (float)transform.rotation.w };
+        float s[3] = { (float)transform.scale.x, (float)transform.scale.y, (float)transform.scale.z };
         
         stabilize_trs(t, r, s);
 
@@ -153,7 +172,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
             if (node->parent && node_to_joint.count(node->parent)) {
                 out.joints[ji].parent = node_to_joint[node->parent];
             } else {
-                out.joints[ji].parent = 0; // Attach scene-level nodes to world_root
+                out.joints[ji].parent = -1; // Correct root assignment
             }
         }
     }
@@ -181,10 +200,9 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
             geo_to_world.m00 = geo_to_world.m11 = geo_to_world.m22 = 1.0f;
         }
 
-        // For static meshes, we assign them to world_root (0) with weight 1.0.
-        // Since vertices are baked to world space, and world_root is identity, 
-        // the shader will render them exactly at their baked world positions.
-        int default_joint = 0; 
+        // For static meshes, we log their attachment, but do not force vertex weights to 0.
+        // We will default to -1 (no attachment).
+        int default_joint = -1; 
         if (mesh_node && node_to_joint.count(mesh_node)) {
             default_joint = node_to_joint[mesh_node];
         }
@@ -193,6 +211,7 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         out_mesh.name = std::string(fmesh->name.data, fmesh->name.length);
         out_mesh.first_vertex = (uint32_t)out.positions.size() / 3;
         out_mesh.first_triangle = (uint32_t)out.indices.size() / 3;
+        out_mesh.attached_joint = default_joint;
         uint32_t vertex_counter = 0;
 
         std::string mat_name = "default";
@@ -425,7 +444,20 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
                 ba.scale.values.push_back((float)key.value.z);
             }
         }
-        out.animations.push_back(ad);
+
+        // Surgical Filter: Count how many joints actually move in this stack.
+        // Node-specific actions (Belt, Bracer, etc.) usually only move 1-2 joints.
+        int animated_joint_count = 0;
+        for (const auto& ba : ad.bones) {
+            if (ba.translation.times.size() > 1 || ba.rotation.times.size() > 1 || ba.scale.times.size() > 1) {
+                animated_joint_count++;
+            }
+        }
+
+        if (animated_joint_count > 1) {
+            out.animations.push_back(ad);
+        }
+        
         ufbx_free_baked_anim(baked_anim);
     }
 
