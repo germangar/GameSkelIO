@@ -2,8 +2,6 @@
 
 GameSkelIO is a high-performance C-compatible library designed for **3D skeletal model and animation transcoding**. It serves as a middleware layer between modern 3D formats (like glTF and FBX) and legacy or specialized game engine formats (like IQM and SKM).
 
-The library is currently at **API Version 4**.
-
 ## Core Architecture
 GameSkelIO has evolved from a single-standard library to a flexible, automated transcoding engine.
 
