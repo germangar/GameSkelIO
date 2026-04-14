@@ -1,4 +1,0 @@
-Starting GLB Export
-Final write test: gsk_knight_dbg.glb
-CG_SUCCESS
-Finished GLB Export

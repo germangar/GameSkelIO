@@ -371,49 +371,73 @@ static Model model_c_to_cpp(const gs_model* c) {
 
 extern "C" gs_model* gsk_load_iqm_buffer(const void* data, size_t size, const gs_legacy_framegroup* anims, uint32_t num_anims) {
     Model cpp;
-    if (load_iqm_from_memory(data, size, cpp, anims, num_anims)) return model_cpp_to_c(cpp);
+    if (load_iqm_from_memory(data, size, cpp, anims, num_anims)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_glb_buffer(const void* data, size_t size) {
     Model cpp;
-    if (load_glb_from_memory(data, size, cpp)) return model_cpp_to_c(cpp);
+    if (load_glb_from_memory(data, size, cpp)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_fbx_buffer(const void* data, size_t size) {
     Model cpp;
-    if (load_fbx_from_memory(data, size, cpp)) return model_cpp_to_c(cpp);
+    if (load_fbx_from_memory(data, size, cpp)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_skm_buffer(const void* skm_data, size_t skm_size, const void* skp_data, size_t skp_size, const gs_legacy_framegroup* anims, uint32_t num_anims) {
     Model cpp;
-    if (load_skm_from_memory(skm_data, skm_size, skp_data, skp_size, cpp, anims, num_anims)) return model_cpp_to_c(cpp);
+    if (load_skm_from_memory(skm_data, skm_size, skp_data, skp_size, cpp, anims, num_anims)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_iqm(const char* path) {
     Model cpp;
-    if (load_iqm(path, cpp)) return model_cpp_to_c(cpp);
+    if (load_iqm(path, cpp)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_glb(const char* path) {
     Model cpp;
-    if (load_glb(path, cpp)) return model_cpp_to_c(cpp);
+    if (load_glb(path, cpp)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_fbx(const char* path) {
     Model cpp;
-    if (load_fbx(path, cpp)) return model_cpp_to_c(cpp);
+    if (load_fbx(path, cpp)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 
 extern "C" gs_model* gsk_load_skm(const char* path) {
     Model cpp;
-    if (load_skm(path, cpp)) return model_cpp_to_c(cpp);
+    if (load_skm(path, cpp)) {
+        if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
     return nullptr;
 }
 

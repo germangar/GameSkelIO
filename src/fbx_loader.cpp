@@ -337,6 +337,46 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
                     for (int u = 0; u < 2; ++u) out.texcoords.push_back(0.0f);
                 }
 
+                if (fmesh->vertex_tangent.exists) {
+                    ufbx_vec3 t_raw = ufbx_get_vertex_vec3(&fmesh->vertex_tangent, fi);
+                    ufbx_vec3 t = ufbx_transform_direction(&geo_to_world, t_raw);
+                    
+                    float world_tan[3] = { (float)t.x, (float)t.y, (float)t.z };
+                    float len = sqrtf(world_tan[0]*world_tan[0] + world_tan[1]*world_tan[1] + world_tan[2]*world_tan[2]);
+                    if (len > 1e-6f) {
+                        world_tan[0] /= len; world_tan[1] /= len; world_tan[2] /= len;
+                    }
+
+                    float w = 1.0f;
+                    if (fmesh->vertex_bitangent.exists) {
+                        ufbx_vec3 b_raw = ufbx_get_vertex_vec3(&fmesh->vertex_bitangent, fi);
+                        ufbx_vec3 b = ufbx_transform_direction(&geo_to_world, b_raw);
+                        
+                        // Extract world normal for handedness calculation
+                        float wn[3] = {0,0,0};
+                        if (out.normals.size() >= 3) {
+                            wn[0] = out.normals[out.normals.size()-3];
+                            wn[1] = out.normals[out.normals.size()-2];
+                            wn[2] = out.normals[out.normals.size()-1];
+                        }
+
+                        float n_cross_t[3] = {
+                            wn[1] * world_tan[2] - wn[2] * world_tan[1],
+                            wn[2] * world_tan[0] - wn[0] * world_tan[2],
+                            wn[0] * world_tan[1] - wn[1] * world_tan[0]
+                        };
+                        float dot = n_cross_t[0] * (float)b.x + n_cross_t[1] * (float)b.y + n_cross_t[2] * (float)b.z;
+                        w = (dot < 0.0f) ? -1.0f : 1.0f;
+                    }
+
+                    out.tangents.push_back(world_tan[0]);
+                    out.tangents.push_back(world_tan[1]);
+                    out.tangents.push_back(world_tan [2]);
+                    out.tangents.push_back(w);
+                } else {
+                    // Placeholder if tangents don't exist in FBX; gameskelio.cpp will compute them later if vector is empty
+                }
+
                 float weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
                 uint8_t joints[4] = { 0, 0, 0, 0 };
 

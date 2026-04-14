@@ -182,6 +182,7 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     size_t pos_off = out->buffer_views[mesh_view_idx].offset;
     size_t norm_off = append_to_buffer_aligned(buf, &out->buffers[0], model.normals.data(), model.normals.size() * sizeof(float));
     size_t uv_off = append_to_buffer_aligned(buf, &out->buffers[0], model.texcoords.data(), model.texcoords.size() * sizeof(float));
+    size_t tan_off = append_to_buffer_aligned(buf, &out->buffers[0], model.tangents.data(), model.tangents.size() * sizeof(float));
     size_t joint_off = append_to_buffer_aligned(buf, &out->buffers[0], model.joints_0.data(), model.joints_0.size());
     size_t weight_off = append_to_buffer_aligned(buf, &out->buffers[0], model.weights_0.data(), model.weights_0.size() * sizeof(float));
     out->buffer_views[mesh_view_idx].size = buf.size() - out->buffer_views[mesh_view_idx].offset;
@@ -327,6 +328,7 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
 
         if(!model.normals.empty()) add_attr("NORMAL", cgltf_attribute_type_normal, cgltf_type_vec3, cgltf_component_type_r_32f, norm_off);
         if(!model.texcoords.empty()) add_attr("TEXCOORD_0", cgltf_attribute_type_texcoord, cgltf_type_vec2, cgltf_component_type_r_32f, uv_off);
+        if(!model.tangents.empty()) add_attr("TANGENT", cgltf_attribute_type_tangent, cgltf_type_vec4, cgltf_component_type_r_32f, tan_off);
         if(!model.joints_0.empty()) add_attr("JOINTS_0", cgltf_attribute_type_joints, cgltf_type_vec4, cgltf_component_type_r_8u, joint_off);
         if(!model.weights_0.empty()) add_attr("WEIGHTS_0", cgltf_attribute_type_weights, cgltf_type_vec4, cgltf_component_type_r_32f, weight_off);
 

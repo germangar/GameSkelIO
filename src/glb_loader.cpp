@@ -230,6 +230,7 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
             out.positions.resize((v_start + num_verts) * 3, 0.0f);
             out.normals.resize((v_start + num_verts) * 3, 0.0f);
             out.texcoords.resize((v_start + num_verts) * 2, 0.0f);
+            out.tangents.resize((v_start + num_verts) * 4, 0.0f);
             out.joints_0.resize((v_start + num_verts) * 4, 0);
             out.weights_0.resize((v_start + num_verts) * 4, 0.0f);
 
@@ -283,6 +284,23 @@ bool load_glb_from_memory(const void* data, size_t size, Model& out) {
                 } else if (attr->type == cgltf_attribute_type_texcoord) {
                     for (size_t v = 0; v < num_verts; ++v)
                         cgltf_accessor_read_float(attr->data, v, &out.texcoords[(v_start + v) * 2], 2);
+                } else if (attr->type == cgltf_attribute_type_tangent) {
+                    for (size_t v = 0; v < num_verts; ++v) {
+                        float tan[4];
+                        cgltf_accessor_read_float(attr->data, v, tan, 4);
+                        
+                        float world_tan[3];
+                        mat4 rot_mat = mesh_world_matrix;
+                        rot_mat.m[12] = rot_mat.m[13] = rot_mat.m[14] = 0.0f; 
+                        mat4_mul_vec3(rot_mat, tan, world_tan);
+                        
+                        float len = sqrtf(world_tan[0]*world_tan[0] + world_tan[1]*world_tan[1] + world_tan[2]*world_tan[2]);
+                        if (len > 1e-6f) {
+                            world_tan[0] /= len; world_tan[1] /= len; world_tan[2] /= len;
+                        }
+                        memcpy(&out.tangents[(v_start + v) * 4], world_tan, 12);
+                        out.tangents[(v_start + v) * 4 + 3] = tan[3]; // Handedness
+                    }
                 } else if (attr->type == cgltf_attribute_type_joints) {
                     for (size_t v = 0; v < num_verts; ++v) {
                         uint32_t joints[4];

@@ -199,6 +199,95 @@ struct Model {
         has_bounds = true;
     }
 
+    void compute_tangents() {
+        size_t nv = positions.size() / 3;
+        if (nv == 0 || texcoords.empty() || normals.empty() || indices.empty()) return;
+
+        tangents.assign(nv * 4, 0.0f);
+        std::vector<float> tan1(nv * 3, 0.0f);
+        std::vector<float> tan2(nv * 3, 0.0f);
+
+        for (size_t i = 0; i < indices.size(); i += 3) {
+            uint32_t i1 = indices[i + 0];
+            uint32_t i2 = indices[i + 1];
+            uint32_t i3 = indices[i + 2];
+
+            const float* v1 = &positions[i1 * 3];
+            const float* v2 = &positions[i2 * 3];
+            const float* v3 = &positions[i3 * 3];
+
+            const float* w1 = &texcoords[i1 * 2];
+            const float* w2 = &texcoords[i2 * 2];
+            const float* w3 = &texcoords[i3 * 2];
+
+            float x1 = v2[0] - v1[0];
+            float x2 = v3[0] - v1[0];
+            float y1 = v2[1] - v1[1];
+            float y2 = v3[1] - v1[1];
+            float z1 = v2[2] - v1[2];
+            float z2 = v3[2] - v1[2];
+
+            float s1 = w2[0] - w1[0];
+            float s2 = w3[0] - w1[0];
+            float t1 = w2[1] - w1[1];
+            float t2 = w3[1] - w1[1];
+
+            float den = (s1 * t2 - s2 * t1);
+            float r = (std::abs(den) > 1e-12f) ? 1.0f / den : 0.0f;
+            
+            float sdir[3] = { (t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r };
+            float tdir[3] = { (s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r };
+
+            for (int k = 0; k < 3; k++) {
+                tan1[i1 * 3 + k] += sdir[k];
+                tan1[i2 * 3 + k] += sdir[k];
+                tan1[i3 * 3 + k] += sdir[k];
+                tan2[i1 * 3 + k] += tdir[k];
+                tan2[i2 * 3 + k] += tdir[k];
+                tan2[i3 * 3 + k] += tdir[k];
+            }
+        }
+
+        for (size_t i = 0; i < nv; i++) {
+            const float* n = &normals[i * 3];
+            const float* t = &tan1[i * 3];
+
+            // Gram-Schmidt orthogonalization
+            float ndott = n[0] * t[0] + n[1] * t[1] + n[2] * t[2];
+            float temp[3] = { t[0] - n[0] * ndott, t[1] - n[1] * ndott, t[2] - n[2] * ndott };
+            float mag = sqrtf(temp[0] * temp[0] + temp[1] * temp[1] + temp[2] * temp[2]);
+            if (mag > 1e-6f) {
+                tangents[i * 4 + 0] = temp[0] / mag;
+                tangents[i * 4 + 1] = temp[1] / mag;
+                tangents[i * 4 + 2] = temp[2] / mag;
+            } else {
+                // Fallback to any orthogonal vector if tangent is invalid
+                if (std::abs(n[0]) > 0.1f) {
+                    tangents[i * 4 + 0] = n[1];
+                    tangents[i * 4 + 1] = -n[0];
+                    tangents[i * 4 + 2] = 0;
+                } else {
+                    tangents[i * 4 + 0] = 0;
+                    tangents[i * 4 + 1] = n[2];
+                    tangents[i * 4 + 2] = -n[1];
+                }
+                float fmag = sqrtf(tangents[i * 4 + 0]*tangents[i * 4 + 0] + tangents[i * 4 + 1]*tangents[i * 4 + 1] + tangents[i * 4 + 2]*tangents[i * 4 + 2]);
+                tangents[i * 4 + 0] /= fmag;
+                tangents[i * 4 + 1] /= fmag;
+                tangents[i * 4 + 2] /= fmag;
+            }
+
+            // Calculate handedness (w component)
+            float n_cross_t[3] = {
+                n[1] * tangents[i * 4 + 2] - n[2] * tangents[i * 4 + 1],
+                n[2] * tangents[i * 4 + 0] - n[0] * tangents[i * 4 + 2],
+                n[0] * tangents[i * 4 + 1] - n[1] * tangents[i * 4 + 0]
+            };
+            float dot = n_cross_t[0] * tan2[i * 3 + 0] + n_cross_t[1] * tan2[i * 3 + 1] + n_cross_t[2] * tan2[i * 3 + 2];
+            tangents[i * 4 + 3] = (dot < 0.0f) ? -1.0f : 1.0f;
+        }
+    }
+
     bool validate_skeleton() {
         for (size_t i = 0; i < joints.size(); ++i) {
             if (joints[i].parent >= (int)joints.size()) return false;

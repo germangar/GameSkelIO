@@ -221,6 +221,9 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_singl
     add_va(IQM_POSITION, IQM_FLOAT, 3, model.positions.data(), model.positions.size() * 4);
     add_va(IQM_TEXCOORD, IQM_FLOAT, 2, model.texcoords.data(), model.texcoords.size() * 4);
     add_va(IQM_NORMAL,   IQM_FLOAT, 3, model.normals.data(), model.normals.size() * 4);
+    if (!model.tangents.empty()) {
+        add_va(IQM_TANGENT, IQM_FLOAT, 4, model.tangents.data(), model.tangents.size() * 4);
+    }
     add_va(IQM_BLENDINDICES, IQM_UBYTE, 4, model.joints_0.data(), model.joints_0.size());
     std::vector<uint8_t> w8(model.weights_0.size());
     for(size_t i=0; i<w8.size(); ++i) w8[i] = (uint8_t)(model.weights_0[i] * 255.0f + 0.5f);
