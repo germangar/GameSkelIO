@@ -243,17 +243,24 @@ struct Model {
         joints = new_joints;
         
         // Also re-map IBMs
-        std::vector<mat4> new_ibms(joints.size());
-        for (size_t i = 0; i < old_joints.size(); ++i) {
-            if (old_to_new[i] != -1) {
-                new_ibms[old_to_new[i]] = ibms[i];
+        if (!ibms.empty()) {
+            std::vector<mat4> new_ibms(joints.size(), mat4_identity());
+            for (size_t i = 0; i < old_joints.size() && i < ibms.size(); ++i) {
+                if (old_to_new[i] != -1 && (size_t)old_to_new[i] < new_ibms.size()) {
+                    new_ibms[old_to_new[i]] = ibms[i];
+                }
             }
+            ibms = new_ibms;
         }
-        ibms = new_ibms;
 
         // Must also re-map joint indices in vertex data
         for (size_t i = 0; i < joints_0.size(); ++i) {
-            joints_0[i] = (uint8_t)old_to_new[joints_0[i]];
+            uint8_t old_idx = joints_0[i];
+            if (old_idx < old_to_new.size() && old_to_new[old_idx] != -1) {
+                joints_0[i] = (uint8_t)old_to_new[old_idx];
+            } else {
+                joints_0[i] = 0; // Fallback to root if remapping failed
+            }
         }
 
         // And in animations

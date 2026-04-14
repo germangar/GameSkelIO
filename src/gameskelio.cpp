@@ -226,8 +226,8 @@ static void copy_anim_channel_to_cpp(const gs_anim_channel& src, AnimChannel& ds
 }
 
 static Model model_c_to_cpp(const gs_model* c) {
+    if (!c) return Model();
     Model cpp;
-    if (!c) return cpp;
 
     cpp.orientation = c->orientation;
     cpp.winding = c->winding;
@@ -242,9 +242,9 @@ static Model model_c_to_cpp(const gs_model* c) {
         for (uint32_t i = 0; i < c->num_joints; ++i) {
             if (c->joints[i].name) cpp.joints[i].name = c->joints[i].name;
             cpp.joints[i].parent = c->joints[i].parent;
-            memcpy(cpp.joints[i].translate, c->joints[i].translate, sizeof(c->joints[i].translate));
-            memcpy(cpp.joints[i].rotate, c->joints[i].rotate, sizeof(c->joints[i].rotate));
-            memcpy(cpp.joints[i].scale, c->joints[i].scale, sizeof(c->joints[i].scale));
+            memcpy(cpp.joints[i].translate, c->joints[i].translate, sizeof(cpp.joints[i].translate));
+            memcpy(cpp.joints[i].rotate, c->joints[i].rotate, sizeof(cpp.joints[i].rotate));
+            memcpy(cpp.joints[i].scale, c->joints[i].scale, sizeof(cpp.joints[i].scale));
         }
     }
 
