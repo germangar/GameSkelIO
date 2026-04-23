@@ -53,4 +53,4 @@ GameSkelIO bridges the gap between PBR and Legacy (Phong/Lambert) workflows.
 ## 7. Build & Maintenance
 - **Makefile**: `make clean; make -j8` produces `libgameskelio.a`, `libgameskelio_x64.dll`, and CLI tools.
 - **Versioning**: API versions are tracked in `gameskelio.h`. Ensure DLLs and headers are updated in sync.
-- **Golden Revision**: `c21f67b1` is the reference point for FBX writer stability.
+- **Golden Revision**: `c21f67b1` is the reference point for FBX writer stability. **Caution**: The FBX Object-Property (OP) hierarchy is extremely fragile; structural deviations in connection logic will likely result in **disconnected skinning links** between joints and meshes, causing animations to become inert (tracks are preserved but fail to drive model deformation).
