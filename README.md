@@ -12,17 +12,34 @@ GameSkelIO has evolved from a single-standard library to a flexible, automated t
 - **Embedded Texture Support**: The root `gs_model` struct includes a `textures` array containing raw binary image data (PNG, JPG) extracted from GLB or FBX containers.
 - **Transparent C API**: The public C functions work on temporary C++ copies, ensuring that the user's original `gs_model*` is never mutated by a write operation.
 
+## Transcoding Workflow
+
+```mermaid
+graph LR
+    A[<b>Input Formats</b><br/>GLB, FBX, IQM, SKM] --> B[<b>Format Loader</b>]
+    B --> C{<b>gs_model</b><br/>Native Data +<br/>Self-Describing}
+    C --> D[<b>Processing Helpers</b><br/>Baking, Rebinding,<br/>Orientation Swap]
+    D --> E[<b>Format Writer</b>]
+    E --> F[<b>Output Formats</b><br/>GLB, FBX, IQM]
+    E -.-> G[<i>Auto-Conforming to<br/>Standard Orientation</i>]
+```
+
 ## Key Features
 
-- **Memory-First API**: Load and export models directly from/to memory buffers.
-- **Embedded Texture Retrieval**: Access raw image bytes stored within model files via the `gsk_get_embedded_texture` API.
-- **Advanced Orientation API**: Perform in-place orientation and winding order swaps on loaded models.
-- **On-Demand Animation Baking**: Convert sparse, time-based animation tracks into dense, frame-based buffers for engines that require it.
-- **Format Support**:
-  - **IQM**: Full Read/Write (Automates conversion to its Z-Up, CW standard).
-  - **GLB/glTF**: Full Read/Write (Strictly writes PBR Metallic-Roughness for maximum compatibility).
-  - **FBX (Binary)**: Full Read/Write (Detects native PBR shaders and orientation axes).
-  - **SKM/SKP**: Read-only support (Automatically upgraded to PBR materials when exported to GLB).
+- **Memory-First API**: All loaders and writers operate primarily on memory buffers, making it ideal for custom engine asset pipelines.
+- **PBR & Legacy Materials**: Full support for Metallic-Roughness workflows with automated fallbacks and conversion from Legacy (Phong/Lambert) shaders.
+- **Embedded Texture Retrieval**: Access raw image bytes (PNG, JPG) stored within GLB/FBX containers via the `gsk_get_embedded_texture` API.
+- **Advanced Orientation API**: Perform zero-copy, in-place orientation and winding order swaps on loaded models.
+- **On-Demand Animation Baking**: Convert sparse, time-based animation tracks into dense, frame-based buffers for legacy engines.
+
+## Format Support
+
+| Format | Read | Write | Standard Orientation | Notes |
+| :--- | :---: | :---: | :--- | :--- |
+| **GLB / glTF** | ✅ | ✅ | Y-Up, CCW | Strictly writes PBR Metallic-Roughness. |
+| **FBX (Binary)** | ✅ | ✅ | Y-Up, CCW | Supports PBR shaders and custom orientation detection. |
+| **IQM** | ✅ | ✅ | Z-Up, CW | Automated conversion from any source space. |
+| **SKM / SKP** | ✅ | ❌ | Z-Up, CW | Legacy format; upgraded to PBR on GLB export. |
 
 ---
 
@@ -30,7 +47,9 @@ GameSkelIO has evolved from a single-standard library to a flexible, automated t
 
 The project uses a standard Makefile. Running `make` in the root directory will produce:
 1. `libgameskelio.a`: The static library for integration.
-2. `gskelconv.exe`: A reference command-line tool.
+2. `libgameskelio_x64.dll`: The dynamic library for Windows integration.
+3. `gskelconv.exe`: A reference command-line conversion tool.
+4. `gsrebind.exe`: A specialized tool for rebinding rest poses.
 
 ```powershell
 make clean
@@ -43,7 +62,7 @@ make -j8
 
 ## Library Usage (C Examples)
 
-### 1. Loading and Saving to Disk (Basic)
+### 1. Basic File Transcoding
 This example shows a simple transcoding operation from a GLB file to an IQM file. The IQM writer will automatically handle the conversion from GLB's Y-Up space to IQM's Z-Up space.
 
 ```c
@@ -56,7 +75,7 @@ gs_model* model = gsk_load_glb("player_input.glb");
 if (model) {
     printf("Model loaded with orientation: %d\n", model->orientation);
 
-    // 2. Save the model. The writer automatically handles the conversion.
+    // 2. Save the model. The writer automatically handles orientation conforming.
     if (gsk_write_iqm("player_output.iqm", model, false)) {
         printf("IQM saved successfully.\n");
     }
@@ -66,7 +85,35 @@ if (model) {
 }
 ```
 
-### 2. Retrieving Embedded Textures
+### 2. Memory-to-Memory Transcoding
+GameSkelIO is memory-first. You can load and export models directly to/from memory buffers without ever touching the disk.
+
+```c
+#include "gameskelio.h"
+#include <stdlib.h>
+
+void process_data(const void* glb_data, size_t glb_size) {
+    // 1. Load from a memory buffer
+    gs_model* model = gsk_load_glb_buffer(glb_data, glb_size);
+    
+    if (model) {
+        // 2. Export to an IQM buffer
+        size_t out_size = 0;
+        void* iqm_data = gsk_export_iqm_buffer(model, &out_size, false, NULL, NULL);
+        
+        if (iqm_data) {
+            // Use iqm_data (e.g., send over network or cache)
+            
+            // 3. IMPORTANT: Free the exported buffer when done
+            gsk_free_buffer(iqm_data);
+        }
+        
+        gsk_free_model(model);
+    }
+}
+```
+
+### 3. Retrieving Embedded Textures
 GLB and FBX files often contain embedded textures. You can retrieve the raw binary data (e.g., PNG/JPG bytes) directly from the loaded model.
 
 ```c
@@ -76,42 +123,24 @@ GLB and FBX files often contain embedded textures. You can retrieve the raw bina
 gs_model* model = gsk_load_glb("character_with_textures.glb");
 
 if (model) {
-    // Get the color map path from the first material
-    const char* tex_path = model->materials[0].color_map;
-    
-    size_t data_size = 0;
-    const void* image_bytes = gsk_get_embedded_texture(model, tex_path, &data_size);
+    // Safety: Check if the model has materials and a valid texture path
+    if (model->num_materials > 0 && model->materials[0].color_map) {
+        const char* tex_path = model->materials[0].color_map;
+        
+        size_t data_size = 0;
+        const void* image_bytes = gsk_get_embedded_texture(model, tex_path, &data_size);
 
-    if (image_bytes) {
-        printf("Found embedded texture: %s (%zu bytes)\n", tex_path, data_size);
-        // You can now pass image_bytes to stbi_load_from_memory() or your engine's loader
+        if (image_bytes) {
+            printf("Found embedded texture: %s (%zu bytes)\n", tex_path, data_size);
+            // Pass to your engine's texture loader (e.g., stbi_load_from_memory)
+        }
     }
 
     gsk_free_model(model);
 }
 ```
 
-### 3. Advanced Feature: Manual Orientation Control
-You can manually convert a model's orientation in-place after loading it.
-
-```c
-#include "gameskelio.h"
-
-gs_model* model = gsk_load_fbx("character.fbx");
-
-if (model) {
-    printf("Original orientation: %d\n", model->orientation);
-
-    // Manually convert the model to Blender's standard Z-Up coordinate system
-    gsk_convert_orientation(model, GS_Z_UP_RIGHTHANDED, GS_WINDING_CW);
-
-    printf("New orientation: %d\n", model->orientation);
-    
-    gsk_free_model(model);
-}
-```
-
-### 4. Advanced Feature: Baking Animations
+### 4. Advanced: Animation Baking
 For engines that use frame-based animation systems, you can "bake" any sparse animation into a dense buffer of frame data.
 
 ```c
@@ -123,44 +152,32 @@ if (model && model->num_animations > 0) {
     // Bake the first animation clip at 30 FPS
     uint32_t anim_idx = 0;
     float fps = 30.0f;
-    gs_baked_anim* baked_anim = gsk_bake_animation(model, anim_idx, fps);
+    gs_baked_anim* baked = gsk_bake_animation(model, anim_idx, fps);
 
-    if (baked_anim) {
-        printf("Animation baked successfully!\n");
-        printf("Frames: %u, Joints: %u, FPS: %.1f\n", baked_anim->num_frames, baked_anim->num_joints, baked_anim->fps);
+    if (baked) {
+        // 'baked->data' contains interleaved T3, R4, S3 floats per joint per frame
+        printf("Baked %u frames for %u joints\n", baked->num_frames, baked->num_joints);
 
         // IMPORTANT: The baked animation is a new allocation and must be freed
-        gsk_free_baked_anim(baked_anim);
+        gsk_free_baked_anim(baked);
     }
 
     gsk_free_model(model);
 }
 ```
 
-## The Converter Tool (`gskelconv`)
+## Tools
 
-`gskelconv` is a command-line utility included with the library. It demonstrates the library's capabilities and is useful for batch processing.
-
-### Usage
+### `gskelconv` (Converter)
+A command-line utility for batch processing and reference usage.
 ```bash
-gskelconv <input.iqm/glb/skm/fbx> <output.iqm/glb/fbx> [flags]
+gskelconv <input.iqm/glb/fbx> <output.iqm/glb/fbx> [flags]
 ```
+- `--qfusion`: Forces a single animation stack and generates a `<model>.cfg` for QFusion/Warfork compatibility.
+- `--base / --anim`: (FBX only) Selective export of geometry or animations.
 
-### Flags
-- `--qfusion`: Repurposes the IQM writer to force a single animation stack (essential for QFusion/Warfork compatibility) and automatically generates a matching `<model>.cfg` file.
-- `--base`: (FBX only) Export the base pose only.
-- `--anim`: (FBX only) Export animations only.
-
-### Example
-```bash
-./gskelconv player.glb player.iqm --qfusion
-```
-
-## The Rebinding Tool (`gsrebind`)
-
-`gsrebind` is a specialized utility used to change a character's **Bind Pose** (Rest Pose) while ensuring all existing animations remain visually invariant. 
-
-### Usage
+### `gsrebind` (Rest Pose Rebinding)
+A specialized tool to change a model's **Bind Pose** while keeping animations visually invariant. Useful for standardizing disparate models into a common T-pose or A-pose for shared animation retargeting.
 ```bash
 gsrebind <input.glb/iqm/fbx> <anim_idx_or_name> <output.glb/iqm>
 ```
