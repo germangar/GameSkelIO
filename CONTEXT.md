@@ -1,70 +1,56 @@
 # AI Agent Project Guide: GameSkelIO
 
-This document is technical context for AI agents to understand the architecture, data flow, and conventions of the GameSkelIO project.
+This document provides essential technical context for AI agents to understand the architecture, data flow, and operational constraints of the GameSkelIO project.
 
-## 1. Project Overview
-- **Type**: C Library (`libgameskelio.a`) with pure C CLI tools.
-- **Purpose**: High-performance 3D skeletal model and animation transcoding.
-- **Architecture**: **Memory-First**. Loaders and writers operate primarily on buffers (`void* data, size_t size`).
-- **Version**: **API Version 4**.
+## 1. Project Mission
+High-performance 3D skeletal model and animation transcoding. GameSkelIO serves as a high-fidelity bridge between modern formats (GLB, FBX) and engine-ready legacy formats (IQM, SKM).
 
-## 2. Core Technical Context & Architecture
-The library uses a **Self-Describing & Automated** architecture.
+## 2. Core Architecture: Self-Describing & Automated
+The library avoids forcing data into a single internal "canonical" state, opting instead for a self-describing middleware approach.
 
-- **Liberated Loaders**: Loaders (FBX, GLB, IQM, SKM) load model data in its **native orientation and winding order**. They no longer force a conversion to a single internal standard.
-- **Self-Describing Models**: The `gs_model` struct contains `orientation` and `winding` fields, making every loaded model self-aware of its format.
-- **Automated Writers**: Writers (FBX, GLB, IQM) automatically request their standard orientation. This is handled via a **transparent, in-place conversion** on a local copy of the model, ensuring the user's original `gs_model` is never mutated.
-- **In-Place Orientation API**: `gsk_convert_orientation` performs all math operations inside existing memory buffers without reallocating any of the model's core pointers.
-- **On-Demand Baking API**: `gsk_bake_animation` converts sparse, time-based animation tracks into a dense, frame-based buffer (`T3, R4, S3` floats per joint per frame).
-- **Embedded Texture Support**: `gs_model` root struct includes a `textures` array (`gs_texture_buffer`). These store raw binary image data (PNG, JPG) found within GLB or FBX containers. The API call `gsk_get_embedded_texture` allows retrieving this data via string matching on the original path.
+- **Native-Format Loaders**: Formats are loaded in their **native orientation and winding order**. A GLB remains Y-Up/CCW, and an IQM remains Z-Up/CW.
+- **Self-Describing `gs_model`**: The root container tracks its own `orientation` and `winding` state. This metadata allows processing tools to behave context-sensitively.
+- **Target-Standard Writers**: Exporters automatically conform the model to their format's required standard (e.g., Y-Up for FBX, Z-Up for IQM) via transparent, in-place conversion on temporary copies.
+- **Zero-Copy Orientation API**: `gsk_convert_orientation` performs math transformations directly within existing vertex and matrix buffers, avoiding costly reallocations.
+- **Memory-First Design**: All core logic operates on memory buffers (`void* data, size_t size`). Path-based functions are mere wrappers that handle file I/O.
 
-## 3. Material & Texture System
-The library supports both modern PBR and Legacy (Phong/Lambert) material workflows.
+## 3. Data Hierarchy & Operational Constraints
+### Data Blocks
+- **Geometry**: Parallel vertex arrays (Positions, Normals, UV0/UV1, Tangents, Colors).
+- **Skinning**: Bone influences (4-weight limit per vertex) and Joint Indices.
+- **Skeleton**: Topological hierarchy with Local TRS and Inverse Bind Matrices (IBMs).
+- **Animations**: Sparse, timestamp-based TRS channels.
+- **Baked Motion**: On-demand generation of dense `T3, R4, S3` frame buffers.
 
-- **Material Detection**: 
-    - **GLB/FBX**: Natively identify PBR via format-specific flags. Fall back to a **Suffix-Based Heuristic** (`_albedo`, `_metallic`, `_roughness`, etc.) in texture map names if flags are missing.
-    - **IQM/SKM**: Strictly identified as **LEGACY**. 
-- **Internal Mapping**: Materials (`gs_material`) track separate maps for PBR (Metallic, Roughness, BaseColor) and Legacy (Specular, Shininess, Diffuse).
-- **Automated GLB Conversion**: The GLB writer automatically "converts" Legacy materials into compliant PBR Metallic-Roughness materials by inverting glossiness into roughness and setting a metallic factor of 0.0.
-- **Virtual Path Sanitization**: Internal "virtual" paths (e.g., `embedded://texture.png`) are automatically stripped of prefixes and directory paths during export to ensure GLB/FBX files contain clean, relative URIs.
+### Constraints
+- **Topological Order**: Joints in the skeleton must be sorted (Parent index < Child index) for hierarchical calculations. `reorder_skeleton()` handles this.
+- **Winding Order**: 
+    - **CCW**: Standard for GLB/FBX.
+    - **CW**: Standard for IQM/SKM.
+- **Math**: Column-Major `gs_mat4`. Rotation channels use `xyzw` quaternions.
 
-## 4. Data Hierarchy (Public C API)
-- **`gs_model`**: The root container. Includes `orientation`, `winding`, and `textures`.
-- **`gs_material`**: Property container. Includes `material_type` (PBR=0, Legacy=1).
-- **`gs_texture_buffer`**: Raw binary buffer for an image (data, size, original_path).
-- **`gs_animation`**: Flattened clip. Contains `gs_bone_anim* bones`.
-- **`gs_bone_anim`**: Group of sparse channels (`translation`, `rotation`, `scale`).
-- **`gs_baked_anim`**: Standalone, dense frame buffer.
+## 4. Material & Texture System
+GameSkelIO bridges the gap between PBR and Legacy (Phong/Lambert) workflows.
 
-## 5. Format-Specific Logic
-- **FBX Writer**:
-    - **Standard**: Automates conversion to `Y-Up, CCW`.
-    - **Scaling**: Enforces a `UnitScaleFactor` of `100.0`.
-    - **Stability**: Strict Object-Property (`OP`) connection logic ensures textures are linked to materials exactly once per material to prevent connections-block corruption.
-- **GLB Writer**:
-    - **Compliance**: Enforces 4-byte alignment for all binary chunks (`append_to_buffer_aligned`).
-    - **Mime-Types**: Uses "Magic Byte" sniffing to identify image types (PNG/JPG) for embedded data lacking extensions.
-    - **Strict PBR**: Strictly writes PBR Metallic-Roughness for maximum compatibility with modern viewers (Windows 3D Viewer).
-- **IQM/SKM Loaders**:
-    - **Legacy**: Always load as `Z-Up, CW` (+X Forward) with Legacy materials.
-- **FBX Loader**: Dynamically detects coordinate systems and PBR shaders (Arnold, OSL, Standard Surface) from file metadata.
+- **PBR Suffix Heuristic**: If format-specific PBR flags are missing, the library scans texture names for suffixes like `_albedo`, `_metallic`, `_roughness` to infer intent.
+- **Automated PBR Upgrade**: When exporting legacy formats (IQM/SKM) to GLB, materials are automatically upgraded to Metallic-Roughness (Glossiness inverted to Roughness, Metallic set to 0.0).
+- **Embedded Textures**: Raw image binary data (PNG/JPG) is preserved in `gs_texture_buffer` arrays and can be retrieved via the `gsk_get_embedded_texture` API.
+- **Path Sanitization**: Directory structures and virtual prefixes (e.g., `embedded://`) are stripped during export to ensure clean, relative URIs.
 
-## 6. Rebinding Architecture (`gsk_rebase_pose`)
-Changes rest poses without breaking animations:
-- **Mesh Warping**: Physically moves vertices to a new pose.
-- **IBM Update**: Updates Inverse Bind Matrices to match the new pose.
-- **Mathematical Cancellation**: The warped vertices and updated IBMs mathematically cancel out during skinning, allowing the **Original Local TRS Keys** to be preserved 1:1.
+## 5. Specialized Pipelines
+- **FBX Logic**: Enforces a `UnitScaleFactor` of `100.0`. Uses strict Object-Property (OP) connection logic to prevent connections-block corruption in binary exports.
+- **GLB Logic**: Enforces 4-byte chunk alignment. Uses magic-byte sniffing for extensionless embedded images.
+- **Rebinding (`gsk_rebase_pose`)**: Changes rest poses while preserving animation visual invariance by physically warping vertices and mathematically updating IBMs to cancel out the transformation during skinning.
 
-## 7. Component Responsibilities
-- **`gameskelio.h`**: Public C API. Reference for all shared data structures.
-- **`gameskelio.cpp`**: C++/C bridge. Handles memory management and conversion logic.
-- **`model.h`**: Internal C++ Source of Truth. Includes the `has_pbr_suffixes` helper.
-- **`glb_writer.cpp` / `fbx_writer.cpp`**: Format-specific exporters with native data embedding.
+## 6. Component Map
+- **`gameskelio.h`**: Public C API. Source of truth for data structures.
+- **`gameskelio.cpp`**: Core bridge logic and memory management.
+- **`model.h`**: Internal C++ container logic and sampling helpers.
+- **`orientation.cpp`**: Coordinate system transformation math.
+- **`math_utils.h`**: Linear algebra primitives (Mat4, Quat, Vec3).
+- **`glb_writer.cpp` / `fbx_writer.cpp`**: High-fidelity format-specific exporters.
 
-## 8. Build Workflow
-- **`make clean; make -j8`**: Mandatory after structural changes.
-- **`libgameskelio_x64.dll`**: The runtime library must be kept in sync with `gameskelio.h` version macros.
-
-## 9. Project History
-- **GOLDEN Revision**: `c21f67b1` was the base for the stable FBX writer.
-- **Current Main**: Fully restored and enhanced with PBR support, embedded texture workflows, and Windows 3D Viewer compatibility fixes.
+## 7. Build & Maintenance
+- **Makefile**: `make clean; make -j8` produces `libgameskelio.a`, `libgameskelio_x64.dll`, and CLI tools.
+- **Versioning**: API versions are tracked in `gameskelio.h`. Ensure DLLs and headers are updated in sync.
+- **Golden Revision**: `c21f67b1` is the reference point for FBX writer stability.
