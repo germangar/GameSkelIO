@@ -24,6 +24,32 @@ graph LR
     E -.-> G[<i>Auto-Conforming to<br/>Standard Orientation</i>]
 ```
 
+## The gs_model Data Structure
+
+GameSkelIO uses a unified, self-describing container (`gs_model`) that holds all the information necessary for a high-fidelity skeletal model.
+
+```mermaid
+graph TD
+    Root[<b>gs_model</b><br/>Root Container] --> Meta[<b>Metadata</b><br/>Orientation, Winding]
+    
+    Root --> Geom[<b>Geometry Blocks</b>]
+    Geom --> VAttribs[Vertex Attributes<br/><i>Positions, Normals, Tangents, UVs, Colors</i>]
+    Geom --> VSkin[Skinning Data<br/><i>Joint Indices & Weights (4-bone influence)</i>]
+    Geom --> VIdx[Index Buffer<br/><i>Triangle Indices</i>]
+    
+    Root --> Scene[<b>Scene Structure</b>]
+    Scene --> Joints[Skeleton<br/><i>Joint Hierarchy & Bind Poses</i>]
+    Scene --> Meshes[Meshes<br/><i>Surface ranges & Material mapping</i>]
+    Scene --> Materials[Materials<br/><i>PBR Factors & Texture Paths</i>]
+    
+    Root --> Animation[<b>Motion Data</b>]
+    Animation --> Tracks[Animation Clips<br/><i>Time-based TRS Channels</i>]
+    Animation --> Morphs[Morph Targets<br/><i>Vertex attribute deltas</i>]
+    
+    Root --> Assets[<b>Resource Blocks</b>]
+    Assets --> Tex[Embedded Textures<br/><i>Raw PNG/JPG binary data</i>]
+```
+
 ## Key Features
 
 - **Memory-First API**: All loaders and writers operate primarily on memory buffers, making it ideal for custom engine asset pipelines.
