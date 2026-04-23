@@ -5,10 +5,11 @@ GameSkelIO is a high-performance C-compatible library designed for **3D skeletal
 ## Core Architecture
 GameSkelIO has evolved from a single-standard library to a flexible, automated transcoding engine.
 
-- **Self-Describing Models**: The `gs_model` struct contains `orientation` and `winding` fields. Loaders populate these fields so every model is self-aware of its native coordinate system.
+- **Format Loaders**: Loaders (IQM, SKM, GLB, FBX) read data in its native format and convert it into the common `gs_model` format.
+- **Format Writers**: Writers convert the `gs_model` data into the target format, automatically conforming the orientation to the format's native standard (e.g., Y-Up for GLB, Z-Up for IQM).
+- **Generic Skeletal Model (`gs_model`)**: A unified skeletal model definition featuring time-based animations and self-identifying orientation and winding fields.
+- **Transformation & Processing Helpers**: Internal tools to perform manual operations on `gs_model`, such as orientation and winding order swaps or baking time-based animations into frame-based buffers.
 - **Embedded Texture Support**: The root `gs_model` struct includes a `textures` array containing raw binary image data (PNG, JPG) extracted from GLB or FBX containers.
-- **"Liberated" Loaders**: Loaders (IQM, SKM, GLB, FBX) read data in its native format without forcing a conversion to a single internal standard.
-- **"Automated" Writers**: Writers automatically request the standard orientation for their target format (e.g., Y-Up for GLB, Z-Up for IQM).
 - **Transparent C API**: The public C functions work on temporary C++ copies, ensuring that the user's original `gs_model*` is never mutated by a write operation.
 
 ## Key Features
