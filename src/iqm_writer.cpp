@@ -48,43 +48,7 @@ bool write_iqm(const Model& model, const char* output_path, bool force_single_an
 std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_single_anim, std::vector<gs_legacy_framegroup>* out_metadata) {
     Model model = model_in; // Create local copy
     
-    // 1. Ensure model has at least one joint (armature) for IQM compat
-    if (model.joints.empty()) {
-        Joint root;
-        root.name = "static_root";
-        root.parent = -1;
-        root.translate[0] = 0.0f; root.translate[1] = 0.0f; root.translate[2] = 0.0f;
-        root.rotate[0] = 0.0f; root.rotate[1] = 0.0f; root.rotate[2] = 0.0f; root.rotate[3] = 1.0f;
-        root.scale[0] = 1.0f; root.scale[1] = 1.0f; root.scale[2] = 1.0f;
-        model.joints.push_back(root);
 
-        // Map all vertices to this new root joint with weight 1.0
-        size_t num_verts = model.positions.size() / 3;
-        if (num_verts > 0) {
-            model.joints_0.assign(num_verts * 4, 0);
-            model.weights_0.assign(num_verts * 4, 0.0f);
-            for (size_t i = 0; i < num_verts; ++i) {
-                model.joints_0[i * 4 + 0] = 0;
-                model.weights_0[i * 4 + 0] = 1.0f;
-            }
-        }
-    }
-
-    // 2. Ensure model has at least one animation
-    if (model.animations.empty()) {
-        AnimationDef anim;
-        anim.name = "static";
-        anim.duration = 0.0; // 0.0 duration generates exactly 1 frame
-        anim.bones.resize(model.joints.size());
-        for (size_t j = 0; j < model.joints.size(); ++j) {
-            BoneAnim ba;
-            ba.translation.times.push_back(0.0); ba.translation.values.push_back(model.joints[j].translate[0]); ba.translation.values.push_back(model.joints[j].translate[1]); ba.translation.values.push_back(model.joints[j].translate[2]);
-            ba.rotation.times.push_back(0.0); ba.rotation.values.push_back(model.joints[j].rotate[0]); ba.rotation.values.push_back(model.joints[j].rotate[1]); ba.rotation.values.push_back(model.joints[j].rotate[2]); ba.rotation.values.push_back(model.joints[j].rotate[3]);
-            ba.scale.times.push_back(0.0); ba.scale.values.push_back(model.joints[j].scale[0]); ba.scale.values.push_back(model.joints[j].scale[1]); ba.scale.values.push_back(model.joints[j].scale[2]);
-            anim.bones[j] = ba;
-        }
-        model.animations.push_back(anim);
-    }
 
     convert_orientation(model, GS_Z_UP_RIGHTHANDED_X_FWD, GS_WINDING_CW);
     model.compute_bounds();
@@ -156,7 +120,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_singl
             uint32_t f_offset = 0;
             for (size_t i = 0; i < model.animations.size(); ++i) {
                 gs_legacy_framegroup fg;
-                fg.name = (i < model_in.animations.size()) ? model_in.animations[i].name.c_str() : "static";
+                fg.name = model_in.animations[i].name.c_str(); // Use model_in to prevent dangling pointer
                 fg.first_frame = f_offset;
                 fg.num_frames = clip_frame_counts[i];
                 fg.fps = BASE_FPS;
@@ -177,7 +141,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_singl
 
             if (out_metadata) {
                 gs_legacy_framegroup fg;
-                fg.name = (i < model_in.animations.size()) ? model_in.animations[i].name.c_str() : "static";
+                fg.name = model_in.animations[i].name.c_str(); // Use model_in to prevent dangling pointer
                 fg.first_frame = f_offset;
                 fg.num_frames = clip_frame_counts[i];
                 fg.fps = BASE_FPS;
