@@ -235,6 +235,8 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
 
                 mat.color_map = get_tex_path(fmat->pbr.base_color.texture);
                 if (mat.color_map.empty()) mat.color_map = get_tex_path(fmat->fbx.diffuse_color.texture);
+                
+
 
                 mat.normal_map = get_tex_path(fmat->pbr.normal_map.texture);
                 if (mat.normal_map.empty()) mat.normal_map = get_tex_path(fmat->fbx.normal_map.texture);
