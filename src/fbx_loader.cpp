@@ -22,7 +22,7 @@ bool load_fbx(const char* path, Model& out) {
 
 bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
     ufbx_load_opts opts = { 0 };
-    opts.target_unit_meters = 1.0f;
+    opts.target_unit_meters = 0.0f;
     // We do NOT set target_axes here to let ufbx load the NATIVE coordinate system
     opts.allow_unsafe = true;
 

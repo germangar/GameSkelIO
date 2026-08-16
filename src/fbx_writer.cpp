@@ -93,8 +93,8 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
     add_prop70(props70, "CoordAxisSign", "int", "Integer", "", (int32_t)1);
     add_prop70(props70, "OriginalUpAxis", "int", "Integer", "", (int32_t)1);
     add_prop70(props70, "OriginalUpAxisSign", "int", "Integer", "", (int32_t)1);
-    add_prop70(props70, "UnitScaleFactor", "double", "Number", "", (double)100.0);
-    add_prop70(props70, "OriginalUnitScaleFactor", "double", "Number", "", (double)100.0);
+    add_prop70(props70, "UnitScaleFactor", "double", "Number", "", (double)1.0);
+    add_prop70(props70, "OriginalUnitScaleFactor", "double", "Number", "", (double)1.0);
 
     // 3. Documents
     Fbx::Record* docs = new Fbx::Record("Documents", &file);
