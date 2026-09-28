@@ -69,6 +69,8 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_singl
         memcpy(iqm_joints[i].translate, model.joints[i].translate, 12);
         memcpy(iqm_joints[i].rotate, model.joints[i].rotate, 16);
         memcpy(iqm_joints[i].scale, model.joints[i].scale, 12);
+        float* r = iqm_joints[i].rotate;
+        if (r[3] > 0.0f) { r[0] = -r[0]; r[1] = -r[1]; r[2] = -r[2]; r[3] = -r[3]; }
     }
     
     // 2. Prepare Meshes
@@ -103,6 +105,16 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_singl
         clip_frame_counts.push_back(nf_actual);
         total_iqm_frames += nf_actual;
         dense_frames.insert(dense_frames.end(), clip_data.begin(), clip_data.end());
+    }
+
+    // Normalize rotation quats in frame data to w <= 0 (matches reference exporters;
+    // sign flip preserves the rotation).
+    for (uint32_t f_idx = 0; f_idx < total_iqm_frames; ++f_idx) {
+        float* fptr = &dense_frames[f_idx * model.joints.size() * 10];
+        for (size_t p = 0; p < model.joints.size(); ++p) {
+            float* q = &fptr[p * 10 + 3];
+            if (q[3] > 0.0f) { q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2]; q[3] = -q[3]; }
+        }
     }
 
     if (force_single_anim) {
