@@ -943,8 +943,12 @@ extern "C" gs_baked_anim* gsk_bake_animation(const gs_model* model, uint32_t ani
     Model cpp = model_c_to_cpp(model);
     if (anim_idx >= (uint32_t)cpp.animations.size()) return nullptr;
     
-    const AnimationDef& anim = cpp.animations[anim_idx];
-    uint32_t nf = (uint32_t)std::round(anim.duration * fps) + 1;
+    const double span = cpp.clip_span(anim_idx);
+    uint32_t nf = 1;
+    if (span > 0.0) {
+        nf = (uint32_t)std::round(span * (double)fps) + 1;
+        if (nf < 2) nf = 2;
+    }
     uint32_t nj = (uint32_t)cpp.joints.size();
 
     gs_baked_anim* baked = (gs_baked_anim*)malloc(sizeof(gs_baked_anim));
@@ -960,8 +964,7 @@ extern "C" gs_baked_anim* gsk_bake_animation(const gs_model* model, uint32_t ani
 
     std::vector<Pose> poses;
     for (uint32_t i = 0; i < nf; ++i) {
-        double t = (double)i / (double)fps;
-        if (t > anim.duration) t = anim.duration;
+        double t = (nf > 1) ? span * (double)i / (double)(nf - 1) : 0.0;
 
         cpp.evaluate_animation((int)anim_idx, t, poses);
 

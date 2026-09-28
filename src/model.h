@@ -466,18 +466,42 @@ struct Model {
         }
         quat_normalize(out);
     }
+    // The clip's true time span, measured from its own keyframes (the last key
+    // across every channel). This is the source of truth for bakes: a clip's
+    // duration in the model container is loader convention and may overshoot
+    // the final key (e.g. count/fps instead of (count-1)/fps), which would add
+    // spurious trailing frames if trusted blindly.
+    double clip_span(uint32_t anim_idx) const {
+        if (anim_idx >= animations.size()) return 0.0;
+        const AnimationDef& anim = animations[anim_idx];
+        double span = 0.0;
+        for (const auto& b : anim.bones) {
+            const AnimChannel* chans[3] = { &b.translation, &b.rotation, &b.scale };
+            for (const auto* c : chans)
+                if (!c->times.empty()) span = std::max(span, c->times.back());
+        }
+        return span;
+    }
+
+    // Bakes the clip onto a uniform grid that spans exactly [0, clip_span]:
+    // frame 0 sits on the first key, the final frame lands on the last key, and
+    // the played length (nf-1)/fps reproduces the source duration to within half
+    // an output frame. A static clip (no keys) yields a single held frame.
     void bake_animation(uint32_t anim_idx, float fps, std::vector<float>& out_data) const {
         if (anim_idx >= animations.size()) return;
-        const AnimationDef& anim = animations[anim_idx];
-        
-        uint32_t nf = (uint32_t)std::round(anim.duration * fps) + 1;
+
+        double span = clip_span(anim_idx);
+        uint32_t nf = 1;
+        if (span > 0.0) {
+            nf = (uint32_t)std::round(span * (double)fps) + 1;
+            if (nf < 2) nf = 2;
+        }
         uint32_t nj = (uint32_t)joints.size();
         out_data.resize((size_t)nf * nj * 10);
 
         std::vector<Pose> poses;
         for (uint32_t i = 0; i < nf; ++i) {
-            double t = (double)i / (double)fps;
-            if (t > anim.duration) t = anim.duration;
+            double t = (nf > 1) ? span * (double)i / (double)(nf - 1) : 0.0;
 
             evaluate_animation((int)anim_idx, t, poses);
 
