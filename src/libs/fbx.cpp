@@ -229,7 +229,6 @@ namespace Fbx
                 }
 
                 const uint8_t * pCompressedLength = reinterpret_cast<const uint8_t*>(&compressedLength);
-                const uint8_t * pArrayLength = reinterpret_cast<const uint8_t*>(&arrayLength);
                 const uint8_t * pEncoding = reinterpret_cast<const uint8_t*>(&encoding);
 
                 memcpy(&data[data.size() - 8], pEncoding, 4);

@@ -96,8 +96,6 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_singl
 
     std::vector<uint32_t> clip_frame_counts;
     for (size_t i = 0; i < model.animations.size(); ++i) {
-        const auto& ad = model.animations[i];
-        
         std::vector<float> clip_data;
         model.bake_animation((uint32_t)i, (float)BASE_FPS, clip_data);
         uint32_t nf_actual = (uint32_t)(clip_data.size() / (model.joints.size() * 10));

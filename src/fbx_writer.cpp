@@ -808,7 +808,9 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             if (link.nodes[ji].t == 0) continue;
             auto add_conn = [&](int64_t nid, int64_t cx, int64_t cy, int64_t cz, const char* name) {
                 add_c("OO", nid, link.layer_id);
-                if (cx) add_c("OP", cx, nid, "d|X"); if (cy) add_c("OP", cy, nid, "d|Y"); if (cz) add_c("OP", cz, nid, "d|Z");
+                if (cx) add_c("OP", cx, nid, "d|X");
+                if (cy) add_c("OP", cy, nid, "d|Y");
+                if (cz) add_c("OP", cz, nid, "d|Z");
                 add_c("OP", nid, joint_to_id[ji], name);
             };
             add_conn(link.nodes[ji].t, link.curves[ji].tx, link.curves[ji].ty, link.curves[ji].tz, "Lcl Translation");

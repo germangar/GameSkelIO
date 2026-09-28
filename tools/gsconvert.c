@@ -197,7 +197,8 @@ int main(int argc, char** argv) {
             
             // Priority 1: <model>.cfg
             char cfg_path[512];
-            strncpy(cfg_path, in_path, sizeof(cfg_path));
+            strncpy(cfg_path, in_path, sizeof(cfg_path) - 1);
+            cfg_path[sizeof(cfg_path) - 1] = '\0';
             char* dot = strrchr(cfg_path, '.');
             if (dot) strcpy(dot, ".cfg");
             else strcat(cfg_path, ".cfg");
@@ -235,7 +236,8 @@ int main(int argc, char** argv) {
         printf("Loading SKM/SKP (via buffer): %s...\n", in_path);
         
         char base_path[512];
-        strncpy(base_path, in_path, sizeof(base_path));
+        strncpy(base_path, in_path, sizeof(base_path) - 1);
+        base_path[sizeof(base_path) - 1] = '\0';
         char* dot = strrchr(base_path, '.');
         if (dot) *dot = '\0';
 
