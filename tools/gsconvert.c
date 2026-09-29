@@ -83,25 +83,63 @@ static gs_legacy_framegroup* parse_cfg(const char* path, uint32_t* out_count) {
     gs_legacy_framegroup* anims = NULL;
     *out_count = 0;
 
+    // "animations" keyword switches to name-first (new) format
+    int name_first_block = 0;
+
     char line[512];
     while (fgets(line, sizeof(line), f)) {
         char* p = line;
-        while (isspace(*p)) p++;
-        if (!*p || !isdigit(*p)) continue;
+        while (isspace((unsigned char)*p)) p++;
+        if (!*p) continue;
+
+        // Skip Warsow-specific non-animation commands
+        if (strncmp(p, "sex", 3) == 0 || strncmp(p, "rootanim", 8) == 0 ||
+            strncmp(p, "tagmask", 7) == 0 || strncmp(p, "rotationbone", 12) == 0) continue;
+
+        if (strncmp(p, "animations", 10) == 0) {
+            name_first_block = 1;
+            continue;
+        }
 
         int first, last, loop;
         float fps;
+        char* name = NULL;
+
+        if (name_first_block) {
+            // New format: <name> <first> <last> <loop> <fps>
+            char* q = p;
+            while (*q && !isspace((unsigned char)*q)) q++;
+            size_t name_len = (size_t)(q - p);
+            if (name_len == 0) continue;
+            name = malloc(name_len + 1);
+            memcpy(name, p, name_len);
+            name[name_len] = '\0';
+
+            int fields = sscanf(q, "%d %d %d %f", &first, &last, &loop, &fps);
+            if (fields < 2) { free(name); continue; }
+
+            anims = realloc(anims, (*out_count + 1) * sizeof(gs_legacy_framegroup));
+            anims[*out_count].first_frame = first;
+            anims[*out_count].num_frames = last - first + 1;
+            anims[*out_count].fps = (fields >= 4) ? fps : 30.0f;
+            anims[*out_count].name = name;
+            (*out_count)++;
+            continue;
+        }
+
+        // Old format: starts with a digit
+        if (!isdigit((unsigned char)*p)) continue;
+
         int fields = sscanf(p, "%d %d %d %f", &first, &last, &loop, &fps);
         if (fields < 2) continue;
 
         char* comment = strstr(p, "//");
-        char* name = NULL;
         if (comment) {
             comment += 2;
-            while (isspace(*comment)) comment++;
+            while (isspace((unsigned char)*comment)) comment++;
             char* end = comment;
-            while (*end && !isspace(*end)) end++;
-            size_t name_len = end - comment;
+            while (*end && !isspace((unsigned char)*end)) end++;
+            size_t name_len = (size_t)(end - comment);
             if (name_len > 0) {
                 name = malloc(name_len + 1);
                 memcpy(name, comment, name_len);
@@ -127,7 +165,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Options:\n");
         fprintf(stderr, "  --base                     Export only the base pose (FBX only)\n");
         fprintf(stderr, "  --anim                     Export only animations (FBX only)\n");
-        fprintf(stderr, "  --qfusion                  Force single animation (IQM only)\n");
+        fprintf(stderr, "  --mergeanimations           Merge all clips into a single animation (IQM only)\n");
         fprintf(stderr, "  --orient <sys> <winding>   Convert orientation and winding order\n");
         fprintf(stderr, "      Systems: y-up-rh, y-up-lh, z-up-rh, z-up-lh, x-up-rh, x-up-lh\n");
         fprintf(stderr, "      Windings: ccw, cw\n");
@@ -148,7 +186,7 @@ int main(int argc, char** argv) {
     const char* wind_str = NULL;
 
     for (int i = 3; i < argc; ++i) {
-        if (strcmp(argv[i], "--qfusion") == 0) {
+        if (strcmp(argv[i], "--mergeanimations") == 0) {
             force_single_anim = true;
         } else if (strcmp(argv[i], "--base") == 0) {
             write_anim = false;

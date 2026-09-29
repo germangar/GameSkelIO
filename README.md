@@ -199,7 +199,7 @@ A command-line utility for batch processing and reference usage.
 ```bash
 gskelconv <input.iqm/glb/fbx> <output.iqm/glb/fbx> [flags]
 ```
-- `--qfusion`: Forces a single animation stack and generates a `<model>.cfg` for QFusion/Warfork compatibility.
+- `--mergeanimations`: Merges all animation clips into a single IQM animation and generates a `<model>.txt` framegroup list for legacy playback. Intended for models whose animations must be read from an external config.
 - `--base / --anim`: (FBX only) Selective export of geometry or animations.
 
 ### `gsrebind` (Rest Pose Rebinding)

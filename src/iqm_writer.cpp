@@ -25,19 +25,21 @@ bool write_iqm(const Model& model, const char* output_path, bool force_single_an
     f.write((const char*)buffer.data(), buffer.size());
     f.close();
 
-    // Write animation.cfg using the metadata we just calculated during baking
+    // Write the animation framegroups metadata alongside the model
     if (!metadata.empty()) {
         std::string cfg_path = output_path;
         size_t dot = cfg_path.find_last_of('.');
-        if (dot != std::string::npos) cfg_path = cfg_path.substr(0, dot) + ".cfg";
-        else cfg_path += ".cfg";
+        if (dot != std::string::npos) cfg_path = cfg_path.substr(0, dot) + ".txt";
+        else cfg_path += ".txt";
         
         std::ofstream cfg(cfg_path);
         if (cfg) {
+            cfg << "// animation embedded in the model\n";
             for (const auto& fg : metadata) {
                 int loop = 0; 
-                cfg << fg.first_frame << " " << fg.first_frame + fg.num_frames - 1 << " " 
-                    << loop << " " << fg.fps << " // " << fg.name << "\n";
+                cfg << fg.name << " " << fg.first_frame << " " 
+                    << fg.first_frame + fg.num_frames - 1 << " " 
+                    << loop << " " << fg.fps << "\n";
             }
         }
     }

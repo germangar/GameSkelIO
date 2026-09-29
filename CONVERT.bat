@@ -29,7 +29,7 @@ if /i "%EXT%" == ".iqm" (
     set "TYPE2=GLB"
 ) else if /i "%EXT%" == ".skm" (
     set "OUT1=%BASENAME%.glb"
-    set "OUT2=%BASENAME%.fbx"
+    set "OUT2=%BASENAME%.iqm"
     set "TYPE1=GLB"
     set "TYPE2=FBX"
 ) else (
@@ -45,11 +45,11 @@ echo To %TYPE2%:     %OUT2%
 echo.
 
 echo.
-"%~dp0gskelconv.exe" "%INPUT%" "%OUT1%" --qfusion
+"%~dp0gskelconv.exe" "%INPUT%" "%OUT1%" //--mergeanimations
 set ERR1=!ERRORLEVEL!
 
 echo.
-"%~dp0gskelconv.exe" "%INPUT%" "%OUT2%" --qfusion
+"%~dp0gskelconv.exe" "%INPUT%" "%OUT2%" //--mergeanimations
 set ERR2=!ERRORLEVEL!
 
 echo.
