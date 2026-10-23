@@ -150,10 +150,5 @@ std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path, bool* 
 
     if (merge_with_builtin) *merge_with_builtin = name_first_block;
 
-    // Ensure we have at least one "base" animation for an empty legacy file
-    if (entries.empty() && !name_first_block) {
-        entries.push_back({"base", 0, 0, 0, BASE_FPS});
-    }
-
     return entries;
 }
