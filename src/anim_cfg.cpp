@@ -30,14 +30,18 @@ std::string find_animation_cfg(const std::string& iqm_path) {
     return "";
 }
 
-std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
+std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path, bool* merge_with_builtin) {
     std::vector<AnimConfigEntry> entries;
 
     std::ifstream f(path);
-    if (!f.is_open()) return entries;
+    if (!f.is_open()) {
+        if (merge_with_builtin) *merge_with_builtin = false;
+        return entries;
+    }
 
-    // "animations" keyword starts the name-first block (new format).
-    // Absent, we treat lines as the old numeric-first format.
+    // The "animations" keyword starts the name-first block. Its entries
+    // override or extend the animations embedded in the model. Without it the
+    // file is the legacy numeric-first format that replaces them entirely.
     bool name_first_block = false;
 
     std::string line;
@@ -50,7 +54,9 @@ std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
         if (line.find("sex")          == 0 ||
             line.find("rootanim")     == 0 ||
             line.find("tagmask")      == 0 ||
-            line.find("rotationbone") == 0) continue;
+            line.find("rotationbone") == 0 ||
+            line.find("loopframes")   == 0 ||
+            line.find("leaningScale") == 0) continue;
 
         if (line.find("animations") == 0) {
             name_first_block = true;
@@ -62,13 +68,26 @@ std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
         ace.fps = BASE_FPS;
 
         if (name_first_block) {
-            // New format: <name> <first> <last> <loop> <fps>
+            // New format: <name> <first> <last> <fps>
+            // Interim files still carry the looping-frames column:
+            // <name> <first> <last> <loop> <fps>
             std::istringstream ss(line);
             if (!(ss >> ace.name)) continue;
             if (!(ss >> ace.first_frame)) continue;
             if (!(ss >> ace.last_frame)) continue;
-            ss >> ace.loop_frames;
-            ss >> ace.fps;
+
+            float v1 = 0.0f, v2 = 0.0f;
+            bool has_v1 = (bool)(ss >> v1);
+            bool has_v2 = has_v1 && (bool)(ss >> v2);
+            if (has_v2) {
+                ace.loop_frames = (int)v1;
+                ace.fps = v2;
+            } else if (has_v1) {
+                ace.fps = v1;
+            } else {
+                ace.fps = BASE_FPS;
+            }
+            if (ace.fps <= 0.0f) ace.fps = BASE_FPS;
         } else {
             // Old format: <first> <last> <loop> <fps> // <name>
             if (!std::isdigit((unsigned char)line[0])) continue;
@@ -129,8 +148,10 @@ std::vector<AnimConfigEntry> parse_animation_cfg(const std::string& path) {
         entries.push_back(ace);
     }
 
-    // Ensure we have at least one "base" animation if file was empty
-    if (entries.empty()) {
+    if (merge_with_builtin) *merge_with_builtin = name_first_block;
+
+    // Ensure we have at least one "base" animation for an empty legacy file
+    if (entries.empty() && !name_first_block) {
         entries.push_back({"base", 0, 0, 0, BASE_FPS});
     }
 

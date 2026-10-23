@@ -40,6 +40,7 @@ GameSkelIO bridges the gap between PBR and Legacy (Phong/Lambert) workflows.
 ## 5. Specialized Pipelines
 - **FBX Logic**: Enforces a `UnitScaleFactor` of `100.0`. Uses strict Object-Property (OP) connection logic to prevent connections-block corruption in binary exports.
 - **GLB Logic**: Enforces 4-byte chunk alignment. Uses magic-byte sniffing for extensionless embedded images.
+- **Animation Config (`animation.cfg`)**: Path-based IQM/SKM loads look for `<model>.cfg` first, then `animation.cfg` in the same directory. Without an `animations` keyword the file uses the legacy numeric-first layout (`<first> <last> <loop> <fps> // <name>`) and **replaces** the model's embedded animation list. With the keyword, entries use the name-first layout (`<name> <first> <last> <fps>`; the interim `<name> <first> <last> <loop> <fps>` is also accepted) and **merge** with the embedded animations: a case-insensitive name match replaces that entry in place, anything else is appended. Nameless embedded framegroups are ignored while merging. `sex`, `rootanim`, `rotationbone`, `tagmask`, `loopframes` and `leaningScale` are skipped.
 - **Rebinding (`gsk_rebase_pose`)**: Changes rest poses while preserving animation visual invariance by physically warping vertices and mathematically updating IBMs to cancel out the transformation during skinning.
 
 ## 6. Component Map

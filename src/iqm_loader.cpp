@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <cctype>
 #include <vector>
 #include <map>
 #include <algorithm>
@@ -22,9 +23,10 @@ bool load_iqm(const char* path, Model& out) {
     std::string cfg_path = find_animation_cfg(path);
     std::vector<gs_legacy_framegroup> overrides;
     std::vector<AnimConfigEntry> entries;
-    
+    bool merge_with_builtin = false;
+
     if (!cfg_path.empty()) {
-        entries = parse_animation_cfg(cfg_path);
+        entries = parse_animation_cfg(cfg_path, &merge_with_builtin);
         for (const auto& entry : entries) {
             gs_legacy_framegroup fg;
             fg.name = entry.name.c_str(); 
@@ -38,10 +40,19 @@ bool load_iqm(const char* path, Model& out) {
     // Pass the overrides to the memory loader
     return load_iqm_from_memory(buffer.data(), file_size, out, 
                                 overrides.empty() ? nullptr : overrides.data(), 
-                                (uint32_t)overrides.size());
+                                (uint32_t)overrides.size(),
+                                merge_with_builtin);
 }
 
-bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_legacy_framegroup* external_anims, uint32_t num_external_anims) {
+static bool anim_names_equal(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    }
+    return true;
+}
+
+bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_legacy_framegroup* external_anims, uint32_t num_external_anims, bool merge_with_builtin) {
     if (!data || size < sizeof(iqmheader)) return false;
 
     const char* buffer = (const char*)data;
@@ -178,6 +189,15 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
         std::vector<TempAnim> anims;
 
         if (external_anims && num_external_anims > 0) {
+            if (merge_with_builtin && hdr->num_anims > 0) {
+                const iqmanim* iqm_anims = (const iqmanim*)(buffer + hdr->ofs_anims);
+                for (uint32_t i = 0; i < hdr->num_anims; ++i) {
+                    const char* builtin_name = text_pool + iqm_anims[i].name;
+                    if (!builtin_name[0]) continue;
+                    anims.push_back({ builtin_name, iqm_anims[i].first_frame, iqm_anims[i].num_frames, (iqm_anims[i].framerate > 0.0f) ? iqm_anims[i].framerate : BASE_FPS });
+                }
+            }
+
             uint32_t n = (num_external_anims > 1024) ? 1024 : num_external_anims;
             for (uint32_t i = 0; i < n; ++i) {
                 int first = external_anims[i].first_frame;
@@ -188,7 +208,23 @@ bool load_iqm_from_memory(const void* data, size_t size, Model& out, const gs_le
                     count = (int)hdr->num_frames - first;
                 }
                 if (count <= 0) continue;
-                anims.push_back({ external_anims[i].name ? external_anims[i].name : "unnamed", first, count, external_anims[i].fps });
+
+                std::string name = external_anims[i].name ? external_anims[i].name : "unnamed";
+                bool replaced = false;
+                if (merge_with_builtin) {
+                    for (auto& existing : anims) {
+                        if (anim_names_equal(existing.name, name)) {
+                            existing.first = first;
+                            existing.count = count;
+                            existing.fps = external_anims[i].fps;
+                            replaced = true;
+                            break;
+                        }
+                    }
+                }
+                if (!replaced) {
+                    anims.push_back({ name, first, count, external_anims[i].fps });
+                }
             }
         } else if (hdr->num_anims > 0) {
             const iqmanim* iqm_anims = (const iqmanim*)(buffer + hdr->ofs_anims);
