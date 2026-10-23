@@ -93,6 +93,48 @@ static void free_cgltf_data_manual(cgltf_data* data) {
     free(data);
 }
 
+static const uint32_t kGlbMagic = 0x46546C67;
+static const uint32_t kGlbVersion = 2;
+static const uint32_t kGlbJsonChunkType = 0x4E4F534A;
+static const uint32_t kGlbBinChunkType = 0x004E4942;
+static const size_t kGlbHeaderSize = 12;
+static const size_t kGlbChunkHeaderSize = 8;
+
+static void pack_glb(std::vector<uint8_t>& out, const void* json_buf, size_t json_size, const void* bin_buf, size_t bin_size) {
+    size_t json_padsize = (json_size % 4 != 0) ? 4 - json_size % 4 : 0;
+    size_t bin_padsize = (bin_size % 4 != 0) ? 4 - bin_size % 4 : 0;
+
+    uint32_t total_size = (uint32_t)(kGlbHeaderSize + kGlbChunkHeaderSize + json_size + json_padsize);
+    if (bin_buf && bin_size > 0) {
+        total_size += (uint32_t)(kGlbChunkHeaderSize + bin_size + bin_padsize);
+    }
+
+    out.resize(total_size);
+    uint8_t* p = out.data();
+
+    memcpy(p, &kGlbMagic, 4);
+    memcpy(p + 4, &kGlbVersion, 4);
+    memcpy(p + 8, &total_size, 4);
+    p += kGlbHeaderSize;
+
+    uint32_t json_chunk_size = (uint32_t)(json_size + json_padsize);
+    memcpy(p, &json_chunk_size, 4);
+    memcpy(p + 4, &kGlbJsonChunkType, 4);
+    p += kGlbChunkHeaderSize;
+    memcpy(p, json_buf, json_size);
+    memset(p + json_size, 0x20, json_padsize);
+    p += json_size + json_padsize;
+
+    if (bin_buf && bin_size > 0) {
+        uint32_t bin_chunk_size = (uint32_t)(bin_size + bin_padsize);
+        memcpy(p, &bin_chunk_size, 4);
+        memcpy(p + 4, &kGlbBinChunkType, 4);
+        p += kGlbChunkHeaderSize;
+        memcpy(p, bin_buf, bin_size);
+        memset(p + bin_size, 0, bin_padsize);
+    }
+}
+
 bool write_glb(const Model& model, const char* output_path) {
     std::vector<uint8_t> buffer = write_glb_to_memory(model);
     if (buffer.empty()) return false;
@@ -108,8 +150,6 @@ bool write_glb(const Model& model, const char* output_path) {
 std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     Model model = model_in;
     convert_orientation(model, GS_Y_UP_RIGHTHANDED, GS_WINDING_CCW);
-    char tmp_path[L_tmpnam];
-    if (!tmpnam(tmp_path)) return {};
 
     // Surgical Fix: Bake rigid vertices into joint-local space
     model.compute_bind_pose();
@@ -505,21 +545,16 @@ std::vector<uint8_t> write_glb_to_memory(const Model& model_in) {
     memcpy((void*)out->bin, buf.data(), out->bin_size);
     
     cgltf_options opts = {}; opts.type = cgltf_file_type_glb;
-    cgltf_result res = cgltf_write_file(&opts, tmp_path, out);
-    
+
     std::vector<uint8_t> result_buf;
-    if (res == cgltf_result_success) {
-        std::ifstream f(tmp_path, std::ios::binary);
-        if (f) {
-            f.seekg(0, std::ios::end);
-            size_t s = f.tellg();
-            f.seekg(0, std::ios::beg);
-            result_buf.resize(s);
-            f.read((char*)result_buf.data(), s);
-            f.close();
+    cgltf_size json_size = cgltf_write(&opts, NULL, 0, out);
+    if (json_size > 1) {
+        std::vector<char> json_buf(json_size);
+        cgltf_size written = cgltf_write(&opts, json_buf.data(), json_size, out);
+        if (written == json_size) {
+            pack_glb(result_buf, json_buf.data(), json_size - 1, out->bin, out->bin_size);
         }
     }
-    std::remove(tmp_path);
 
     // Free the manually constructed cgltf_data to prevent massive memory leaks
     free_cgltf_data_manual(out);

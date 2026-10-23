@@ -1,3 +1,5 @@
 # FBX Writer Restoration & Feature Integration Task List
 
 - Study the possibility of having the C-style model struct defined inside the C++ code so they share the same data instead of having to be updating it all the time.
+
+- Revisit the IQM export workaround in gskelview's model_main_save_iqm(): it permanently injects a "static_root" joint, a 1-key "static" animation and default joints_0/weights_0 into the loaded model when num_joints == 0 or num_animations == 0, because QFusion needs them in order to load unanimated IQM files. There have been fixes to the IQM loader in Warfork, so the injection might no longer be needed - check that out. If it can go, also get rid of the side effect: the mutation sticks to the in-memory model and therefore alters every later export made from it. Low priority, and verifying it means converting a model to load in Warfork, which is not worth doing right now.

@@ -14,7 +14,7 @@ set "BASENAME=%~dpn1"
 
 if /i "%EXT%" == ".iqm" (
     set "OUT1=%BASENAME%.glb"
-    set "OUT2=%BASENAME%.fbx"
+    set "OUT2=%BASENAME%.iqm"
     set "TYPE1=GLB"
     set "TYPE2=FBX"
 ) else if /i "%EXT%" == ".glb" (
