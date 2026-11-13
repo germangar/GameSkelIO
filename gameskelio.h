@@ -247,14 +247,6 @@ gs_model* gsk_load_glb(const char* path);
 gs_model* gsk_load_fbx(const char* path);
 gs_model* gsk_load_skm(const char* path);
 
-// Special-purpose: load ONLY the tags (attach points) of an MD3 file as a
-// joint-only model (0 meshes). Tag frames become a single animation sampled
-// at BASE_FPS (30) so exported IQM frame counts match the source MD3; static
-// (single-frame) MD3s still produce a one-frame animation, because Warfork
-// rejects IQM files without frames/animations.
-// Returns NULL if the file has no tags or is not a valid MD3.
-gs_model* gsk_load_md3_tags(const char* path);
-
 // Writers/Exporters (Buffer-based): Bake model into a specific format's binary representation.
 // Returns a pointer to the allocated memory block and sets 'out_size'.
 // Caller must release this memory using gsk_free_buffer().

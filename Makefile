@@ -23,7 +23,6 @@ LDFLAGS  =
 
 TARGET = gskelconv$(EXE_SUFFIX)
 REBIND_TARGET = gsrebind$(EXE_SUFFIX)
-TEST_TARGET = test_md3_tags$(EXE_SUFFIX)
 LIB_TARGET = libgameskelio.a
 DLL_TARGET = $(SHARED_LIB_NAME)
 OBJDIR = obj
@@ -39,7 +38,6 @@ LIB_SRCS = iqm_loader.cpp \
            skp_loader.cpp \
            fbx_writer.cpp \
            fbx_loader.cpp \
-           md3_tags_loader.cpp \
            gameskelio.cpp \
            orientation.cpp
 
@@ -77,13 +75,6 @@ $(TARGET): $(MAIN_OBJ) $(LIB_TARGET)
 $(REBIND_TARGET): $(REBIND_OBJ) $(LIB_TARGET)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) -lstdc++
 
-# Regression test: MD3 tag-only import must reproduce Warfork's attachment.
-$(TEST_TARGET): tests/test_md3_tags.cpp $(LIB_TARGET)
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LIB_TARGET) $(LDFLAGS) -lstdc++
-
-test: $(TEST_TARGET)
-	./$(TEST_TARGET)
-
 $(OBJDIR)/%.o: src/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
@@ -103,6 +94,6 @@ $(OBJDIR)/cgltf_write_impl.o: src/libs/cgltf_write_impl.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET) $(REBIND_TARGET) $(TEST_TARGET) $(LIB_TARGET) $(DLL_TARGET) $(CLEAN_EXTRAS)
+	rm -rf $(OBJDIR) $(TARGET) $(REBIND_TARGET) $(LIB_TARGET) $(DLL_TARGET) $(CLEAN_EXTRAS)
 
-.PHONY: all clean test
+.PHONY: all clean

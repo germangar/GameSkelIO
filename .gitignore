@@ -2,7 +2,6 @@
 # Build artifacts
 *.o
 obj/
-/test_md3_tags.exe
 
 # OS files
 .DS_Store
