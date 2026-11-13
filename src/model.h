@@ -135,10 +135,10 @@ struct Model {
     std::vector<mat4> computed_ibms; // IBMs computed from bind pose
 
     // Metrics
-    float mins[3];
-    float maxs[3];
-    float radius;
-    float xyradius;
+    float mins[3] = {0.0f, 0.0f, 0.0f};
+    float maxs[3] = {0.0f, 0.0f, 0.0f};
+    float radius = 0.0f;
+    float xyradius = 0.0f;
     bool has_bounds = false;
 
     // Helper to calculate bind pose (non-destructive)

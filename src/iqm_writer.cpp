@@ -53,6 +53,7 @@ std::vector<uint8_t> write_iqm_to_memory(const Model& model_in, bool force_singl
 
 
     convert_orientation(model, GS_Z_UP_RIGHTHANDED_X_FWD, GS_WINDING_CW);
+
     model.compute_bounds();
 
     std::vector<uint8_t> buffer;

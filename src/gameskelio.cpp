@@ -4,6 +4,7 @@
 #include "glb_loader.h"
 #include "fbx_loader.h"
 #include "skp_loader.h"
+#include "md3_tags_loader.h"
 #include "iqm_writer.h"
 #include "glb_writer.h"
 #include "fbx_writer.h"
@@ -436,6 +437,14 @@ extern "C" gs_model* gsk_load_skm(const char* path) {
     Model cpp;
     if (load_skm(path, cpp)) {
         if (cpp.tangents.empty()) cpp.compute_tangents();
+        return model_cpp_to_c(cpp);
+    }
+    return nullptr;
+}
+
+extern "C" gs_model* gsk_load_md3_tags(const char* path) {
+    Model cpp;
+    if (load_md3_tags(path, cpp)) {
         return model_cpp_to_c(cpp);
     }
     return nullptr;
