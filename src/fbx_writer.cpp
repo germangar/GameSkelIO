@@ -93,8 +93,14 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
     add_prop70(props70, "CoordAxisSign", "int", "Integer", "", (int32_t)1);
     add_prop70(props70, "OriginalUpAxis", "int", "Integer", "", (int32_t)1);
     add_prop70(props70, "OriginalUpAxisSign", "int", "Integer", "", (int32_t)1);
-    add_prop70(props70, "UnitScaleFactor", "double", "Number", "", (double)1.0);
-    add_prop70(props70, "OriginalUnitScaleFactor", "double", "Number", "", (double)1.0);
+    // Declare the model's units as meters. FBX's UnitScaleFactor is relative
+    // to centimeters, so 100.0 means "1 FBX unit = 1 m". GLB and OBJ are
+    // unitless and Blender treats 1 unit = 1 m, so declaring meters keeps
+    // FBX exports the same size as the other formats (e.g. in Blender).
+    // The loader side reads raw units (target_unit_meters = 0), so round
+    // trips are unaffected.
+    add_prop70(props70, "UnitScaleFactor", "double", "Number", "", (double)100.0);
+    add_prop70(props70, "OriginalUnitScaleFactor", "double", "Number", "", (double)100.0);
 
     // 3. Documents
     Fbx::Record* docs = new Fbx::Record("Documents", &file);
