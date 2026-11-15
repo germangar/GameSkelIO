@@ -60,6 +60,27 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
     (*metadata->insert(new Fbx::Record("Revision")))->properties().insert(new Fbx::Property(""));
     (*metadata->insert(new Fbx::Record("Comment")))->properties().insert(new Fbx::Property(""));
 
+    // 1b. FileId + CreationTime (top-level, after FBXHeaderExtension).
+    // Maya's FBX SDK validates the binary footer code against this pair and
+    // silently imports NOTHING (no error) when they disagree -- verified by
+    // flipping a single GUID byte of an otherwise untouched Blender-authored
+    // file. The footer in src/libs/fbx.cpp writes the well-known fallback
+    // code (fa bc ab 09 d0 c8 d4 66 b1 76 fb 83 1c f7 26 7e), which Blender
+    // also uses together with this same constant FileId/timestamp pair
+    // (Blender hardcodes both in io_scene_fbx/encode_bin.py). Keeping the
+    // three values as a matched, constant triple is what makes Maya accept
+    // the file; a random FileId with the fallback code gets rejected.
+    {
+        static const uint8_t kFileId[16] = {
+            0x28, 0xb3, 0x2a, 0xeb, 0xb6, 0x24, 0xcc, 0xc2,
+            0xbf, 0xc8, 0xb0, 0x2a, 0xa9, 0x2b, 0xfc, 0xf1 };
+        Fbx::Record* file_id = new Fbx::Record("FileId", &file);
+        file_id->properties().insert(new Fbx::Property(kFileId, 16));
+
+        Fbx::Record* creation_time = new Fbx::Record("CreationTime", &file);
+        creation_time->properties().insert(new Fbx::Property("1970-01-01 10:00:00:000"));
+    }
+
     // 2. GlobalSettings
     Fbx::Record* gs = new Fbx::Record("GlobalSettings", &file);
     (*gs->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)1000));
@@ -358,6 +379,12 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
         add_prop70_3d(p70, "Lcl Rotation", "Lcl Rotation", "", "A", (double)euler[0], (double)euler[1], (double)euler[2]);
         add_prop70_3d(p70, "Lcl Scaling", "Lcl Scaling", "", "A", (double)s[0], (double)s[1], (double)s[2]);
         add_prop70(p70, "RotationOrder", "enum", "", "", (int32_t)0);
+        // Maya's FBX SDK ignores Model records that lack these two properties:
+        // the joints come in as plain transforms and skinned meshes are dropped.
+        // (Verified by bisecting against a Blender-written file of the same
+        // model: adding exactly these makes joints and meshes import.)
+        add_prop70(p70, "DefaultAttributeIndex", "int", "Integer", "", (int32_t)0);
+        add_prop70(p70, "InheritType", "enum", "", "", (int32_t)1);
         
         (*mod->insert(new Fbx::Record("Shading")))->properties().insert(new Fbx::Property(true));
         (*mod->insert(new Fbx::Record("Culling")))->properties().insert(new Fbx::Property("CullingOff"));
@@ -406,6 +433,7 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             Fbx::Record* layer_norm = new Fbx::Record("LayerElementNormal", geom);
             layer_norm->properties().insert(new Fbx::Property((int32_t)0));
             (*layer_norm->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)101));
+            (*layer_norm->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property(""));
             (*layer_norm->insert(new Fbx::Record("MappingInformationType")))->properties().insert(new Fbx::Property("ByPolygonVertex"));
             (*layer_norm->insert(new Fbx::Record("ReferenceInformationType")))->properties().insert(new Fbx::Property("Direct"));
             std::vector<double> norms;
@@ -429,6 +457,7 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             Fbx::Record* layer_uv = new Fbx::Record("LayerElementUV", geom);
             layer_uv->properties().insert(new Fbx::Property((int32_t)0));
             (*layer_uv->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)101));
+            (*layer_uv->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property(""));
             (*layer_uv->insert(new Fbx::Record("MappingInformationType")))->properties().insert(new Fbx::Property("ByPolygonVertex"));
             (*layer_uv->insert(new Fbx::Record("ReferenceInformationType")))->properties().insert(new Fbx::Property("Direct"));
             std::vector<double> uv_data;
@@ -452,6 +481,7 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
                 Fbx::Record* layer_tan = new Fbx::Record("LayerElementTangent", geom);
                 layer_tan->properties().insert(new Fbx::Property((int32_t)0));
                 (*layer_tan->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)101));
+                (*layer_tan->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property(""));
                 (*layer_tan->insert(new Fbx::Record("MappingInformationType")))->properties().insert(new Fbx::Property("ByPolygonVertex"));
                 (*layer_tan->insert(new Fbx::Record("ReferenceInformationType")))->properties().insert(new Fbx::Property("Direct"));
                 std::vector<double> tan_data;
@@ -487,6 +517,7 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
                 Fbx::Record* layer_bitan = new Fbx::Record("LayerElementBinormal", geom);
                 layer_bitan->properties().insert(new Fbx::Property((int32_t)0));
                 (*layer_bitan->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)101));
+                (*layer_bitan->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property(""));
                 (*layer_bitan->insert(new Fbx::Record("MappingInformationType")))->properties().insert(new Fbx::Property("ByPolygonVertex"));
                 (*layer_bitan->insert(new Fbx::Record("ReferenceInformationType")))->properties().insert(new Fbx::Property("Direct"));
                 (*layer_bitan->insert(new Fbx::Record("Binormals")))->properties().insert(new Fbx::Property(bitan_data.data(), (uint32_t)bitan_data.size()));
@@ -497,6 +528,7 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
                 Fbx::Record* layer_col = new Fbx::Record("LayerElementColor", geom);
                 layer_col->properties().insert(new Fbx::Property((int32_t)0));
                 (*layer_col->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)101));
+                (*layer_col->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property(""));
                 (*layer_col->insert(new Fbx::Record("MappingInformationType")))->properties().insert(new Fbx::Property("ByPolygonVertex"));
                 (*layer_col->insert(new Fbx::Record("ReferenceInformationType")))->properties().insert(new Fbx::Property("Direct"));
                 std::vector<double> col_data;
@@ -523,6 +555,7 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
                 Fbx::Record* layer_uv1 = new Fbx::Record("LayerElementUV", geom);
                 layer_uv1->properties().insert(new Fbx::Property((int32_t)1));
                 (*layer_uv1->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)101));
+                (*layer_uv1->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property(""));
                 (*layer_uv1->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property("uv1"));
                 (*layer_uv1->insert(new Fbx::Record("MappingInformationType")))->properties().insert(new Fbx::Property("ByPolygonVertex"));
                 (*layer_uv1->insert(new Fbx::Record("ReferenceInformationType")))->properties().insert(new Fbx::Property("Direct"));
@@ -547,6 +580,7 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             Fbx::Record* layer_mat = new Fbx::Record("LayerElementMaterial", geom);
             layer_mat->properties().insert(new Fbx::Property((int32_t)0));
             (*layer_mat->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)101));
+            (*layer_mat->insert(new Fbx::Record("Name")))->properties().insert(new Fbx::Property(""));
             (*layer_mat->insert(new Fbx::Record("MappingInformationType")))->properties().insert(new Fbx::Property("AllSame"));
             (*layer_mat->insert(new Fbx::Record("ReferenceInformationType")))->properties().insert(new Fbx::Property("IndexToDirect"));
             std::vector<int32_t> mat_indices = {0};
@@ -576,6 +610,8 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
             (*mod_mesh->insert(new Fbx::Record("Version")))->properties().insert(new Fbx::Property((int32_t)232));
             Fbx::Record* p70_mesh = new Fbx::Record("Properties70", mod_mesh);
             add_prop70(p70_mesh, "RotationOrder", "enum", "", "", (int32_t)0);
+            add_prop70(p70_mesh, "DefaultAttributeIndex", "int", "Integer", "", (int32_t)0);
+            add_prop70(p70_mesh, "InheritType", "enum", "", "", (int32_t)1);
 
             // Skin & Clusters
             bool global_has_skin = (in.joints_0.size() >= (in.positions.size() / 3 * 4)) && (in.weights_0.size() >= (in.positions.size() / 3 * 4));
@@ -622,9 +658,18 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
                     (*cluster->insert(new Fbx::Record("Weights")))->properties().insert(new Fbx::Property(wts.data(), (uint32_t)wts.size()));
                     
                     Fbx::Record* transf = new Fbx::Record("Transform", cluster);
+                    // FBX skinning applies: vertex = TransformLink * Transform * v_local.
+                    // TransformLink is the joint's global bind matrix, so Transform
+                    // must be its INVERSE; otherwise the product is not identity at
+                    // bind pose and the geometry gets the root bone's transform
+                    // applied a second time. Our mesh vertices are already written in
+                    // the final (converted) space while the root joint carries the
+                    // axis-conversion rotation, so writing an identity Transform here
+                    // left the mesh rotated 120 degrees away from its own tags in
+                    // Maya (launcher muzzle pointing up, tag_flash along the barrel).
                     double id_m[16];
-                    mat4 ident = mat4_identity();
-                    for(int r=0; r<16; ++r) id_m[r] = (double)ident.m[r];
+                    mat4 inv = mat4_invert(in.world_matrices[i]);
+                    for(int r=0; r<16; ++r) id_m[r] = (double)inv.m[r];
                     transf->properties().insert(new Fbx::Property(id_m, 16));
 
                     Fbx::Record* tlink = new Fbx::Record("TransformLink", cluster);
@@ -789,6 +834,11 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
         }
 
         for (size_t mi = 0; mi < in.meshes.size(); ++mi) {
+            // Meshes stay parented to the scene root: their vertices are written
+            // in the model's final (converted) coordinate space, so the mesh node
+            // must not inherit the skeleton root's axis-conversion rotation.
+            // Consistency with the bones comes from the skin cluster bind delta
+            // (TransformLink * Transform == identity), see the Transform record.
             add_c("OO", mesh_model_ids[mi], 0);
             add_c("OO", mesh_geom_ids[mi], mesh_model_ids[mi]);
             

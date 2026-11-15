@@ -828,8 +828,23 @@ namespace Fbx
             
         }
 
-        // Add FBX footer (at least 20 bytes of nulls)
-        data.insert(data.end(), 20, 0);
+        // FBX binary footer block: creator-hash fallback code, padding, the
+        // file version, a zero trailer and the final magic. The Autodesk SDK
+        // (Maya) validates this block; a bare run of nulls is treated as a
+        // corrupt file. Layout copied from Autodesk/Blender writer output.
+        {
+            static const uint8_t footer_code[16] = {
+                0xfa, 0xbc, 0xab, 0x09, 0xd0, 0xc8, 0xd4, 0x66,
+                0xb1, 0x76, 0xfb, 0x83, 0x1c, 0xf7, 0x26, 0x7e };
+            static const uint8_t footer_magic[16] = {
+                0xf8, 0x5a, 0x8c, 0x6a, 0xde, 0xf5, 0xd9, 0x7e,
+                0xec, 0xe9, 0x0c, 0xe3, 0x75, 0x8f, 0x29, 0x0b };
+            data.insert(data.end(), footer_code, footer_code + 16);
+            data.insert(data.end(), 20, 0);
+            data.insert(data.end(), pVersion, pVersion + 4);
+            data.insert(data.end(), 120, 0);
+            data.insert(data.end(), footer_magic, footer_magic + 16);
+        }
 
         file.write(reinterpret_cast<const char*>(&data[0]), data.size());
     }
