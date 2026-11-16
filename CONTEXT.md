@@ -24,6 +24,7 @@ The library avoids forcing data into a single internal "canonical" state, opting
 
 ### Constraints
 - **Topological Order**: Joints in the skeleton must be sorted (Parent index < Child index) for hierarchical calculations. `reorder_skeleton()` handles this.
+- **Welded Vertices**: Models are **deduplicated on import** ("welded"). Native loaders (FBX, GLB, IQM, SKM) weld automatically in `gsk_load_*`; loaders outside the library (e.g. Assimp-based) must call `gsk_weld_model()` explicitly. Welding merges vertices carrying bit-identical attributes (position, normal, tangent, color, UVs, skin indices/weights), remaps indices and fixes mesh ranges — it is lossless, idempotent and never removes triangles. Engines that extrude outlines along vertex normals need this shared vertex pool. Models with morph targets skip welding (per-vertex delta remapping is not implemented yet).
 - **Winding Order**: 
     - **CCW**: Standard for GLB/FBX.
     - **CW**: Standard for IQM/SKM.
@@ -38,7 +39,8 @@ GameSkelIO bridges the gap between PBR and Legacy (Phong/Lambert) workflows.
 - **Path Sanitization**: Directory structures and virtual prefixes (e.g., `embedded://`) are stripped during export to ensure clean, relative URIs.
 
 ## 5. Specialized Pipelines
-- **FBX Logic**: Enforces a `UnitScaleFactor` of `100.0` (centimeter-relative, i.e. meters). Uses strict Object-Property (OP) connection logic to prevent connections-block corruption in binary exports. Maya's FBX SDK fails **silently** (empty scene, no error) on structural omissions that Blender tolerates — the full list of mandatory constraints is in **§8**.
+- **FBX Logic**: Enforces a `UnitScaleFactor` of `100.0` (centimeter-relative, i.e. meters). Uses strict Object-Property (OP) connection logic to prevent connections-block corruption in binary exports. Maya's FBX SDK fails **silently** (empty scene, no error) on structural omissions that Blender tolerates — the full list of mandatory constraints is in **§8**. The writer also computes the bind pose itself if the incoming model lacks `world_matrices` (GLB loads don't provide them); without this the skin-cluster loop reads past the end of the array and crashes.
+- **Vertex Welding**: `Model::weld()` (see §3) runs in the shared loader finalizer (`finalize_loaded` in `gameskelio.cpp`) **before** tangent computation, so computed tangents come out smooth across shared vertices. `gsk_weld_model()` exposes the same operation for externally loaded models. Models already welded pay one cheap no-op pass.
 - **GLB Logic**: Enforces 4-byte chunk alignment. Uses magic-byte sniffing for extensionless embedded images.
 - **Animation Config (`animation.cfg`)**: Path-based IQM/SKM loads look for `<model>.cfg` first, then `animation.cfg` in the same directory. Without an `animations` keyword the file uses the legacy numeric-first layout (`<first> <last> <loop> <fps> // <name>`) and **replaces** the model's embedded animation list. With the keyword, entries use the name-first layout (`<name> <first> <last> <fps>`; the interim `<name> <first> <last> <loop> <fps>` is also accepted) and **merge** with the embedded animations: a case-insensitive name match replaces that entry in place, anything else is appended. Nameless embedded framegroups are ignored while merging. A config with no animation entries at all (commands only, e.g. `loopframes`/`tagmask`) leaves the embedded list untouched. `sex`, `rootanim`, `rotationbone`, `tagmask`, `loopframes` and `leaningScale` are skipped.
 - **Rebinding (`gsk_rebase_pose`)**: Changes rest poses while preserving animation visual invariance by physically warping vertices and mathematically updating IBMs to cancel out the transformation during skinning.
@@ -53,7 +55,7 @@ GameSkelIO bridges the gap between PBR and Legacy (Phong/Lambert) workflows.
 
 ## 7. Build & Maintenance
 - **Makefile**: `make clean; make -j8` produces `libgameskelio.a`, `libgameskelio_x64.dll`, and CLI tools.
-- **Versioning**: API versions are tracked in `gameskelio.h`. Ensure DLLs and headers are updated in sync.
+- **Versioning**: API versions are tracked in `gameskelio.h` (`GAMESKELIO_VERSION`, currently 5). Ensure DLLs and headers are updated in sync.
 - **Golden Revision**: `c21f67b1` is the reference point for FBX writer stability. **Caution**: The FBX Object-Property (OP) hierarchy is extremely fragile; structural deviations in connection logic will likely result in **disconnected skinning links** between joints and meshes, causing animations to become inert (tracks are preserved but fail to drive model deformation).
 
 ## 8. FBX Writer: Maya Compatibility Constraints

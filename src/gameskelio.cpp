@@ -369,11 +369,22 @@ static Model model_c_to_cpp(const gs_model* c) {
 // Loaders
 // ---------------------------------------------------------
 
+// Common post-load finalization shared by every gsk_load_* entry point:
+// weld the vertex buffers (deduplicate per-corner expansion done by some
+// loaders, e.g. FBX) and then compute tangents if the source had none.
+// Welding FIRST matters: tangents computed afterwards are smooth across
+// shared vertices, and source-provided tangents participate in the weld key
+// instead of preventing merges.
+static gs_model* finalize_loaded(Model& cpp) {
+    cpp.weld();
+    if (cpp.tangents.empty()) cpp.compute_tangents();
+    return model_cpp_to_c(cpp);
+}
+
 extern "C" gs_model* gsk_load_iqm_buffer(const void* data, size_t size, const gs_legacy_framegroup* anims, uint32_t num_anims) {
     Model cpp;
     if (load_iqm_from_memory(data, size, cpp, anims, num_anims)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -381,8 +392,7 @@ extern "C" gs_model* gsk_load_iqm_buffer(const void* data, size_t size, const gs
 extern "C" gs_model* gsk_load_glb_buffer(const void* data, size_t size) {
     Model cpp;
     if (load_glb_from_memory(data, size, cpp)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -390,8 +400,7 @@ extern "C" gs_model* gsk_load_glb_buffer(const void* data, size_t size) {
 extern "C" gs_model* gsk_load_fbx_buffer(const void* data, size_t size) {
     Model cpp;
     if (load_fbx_from_memory(data, size, cpp)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -399,8 +408,7 @@ extern "C" gs_model* gsk_load_fbx_buffer(const void* data, size_t size) {
 extern "C" gs_model* gsk_load_skm_buffer(const void* skm_data, size_t skm_size, const void* skp_data, size_t skp_size, const gs_legacy_framegroup* anims, uint32_t num_anims) {
     Model cpp;
     if (load_skm_from_memory(skm_data, skm_size, skp_data, skp_size, cpp, anims, num_anims)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -408,8 +416,7 @@ extern "C" gs_model* gsk_load_skm_buffer(const void* skm_data, size_t skm_size, 
 extern "C" gs_model* gsk_load_iqm(const char* path) {
     Model cpp;
     if (load_iqm(path, cpp)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -417,8 +424,7 @@ extern "C" gs_model* gsk_load_iqm(const char* path) {
 extern "C" gs_model* gsk_load_glb(const char* path) {
     Model cpp;
     if (load_glb(path, cpp)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -426,8 +432,7 @@ extern "C" gs_model* gsk_load_glb(const char* path) {
 extern "C" gs_model* gsk_load_fbx(const char* path) {
     Model cpp;
     if (load_fbx(path, cpp)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -435,8 +440,7 @@ extern "C" gs_model* gsk_load_fbx(const char* path) {
 extern "C" gs_model* gsk_load_skm(const char* path) {
     Model cpp;
     if (load_skm(path, cpp)) {
-        if (cpp.tangents.empty()) cpp.compute_tangents();
-        return model_cpp_to_c(cpp);
+        return finalize_loaded(cpp);
     }
     return nullptr;
 }
@@ -846,6 +850,58 @@ extern "C" bool gsk_rebase_pose(gs_model* model, uint32_t pose_anim_idx) {
     *new_c = temp;
     gsk_free_model(new_c);
 
+    return true;
+}
+
+extern "C" bool gsk_weld_model(gs_model* model) {
+    if (!model) return false;
+    if (model->num_morph_targets > 0) return true; // Weld skipped: morph deltas are per-vertex global arrays (see Model::weld).
+
+    // 1. Copy into a C++ Model and weld.
+    Model cpp = model_c_to_cpp(model);
+    size_t verts_before = cpp.positions.size() / 3;
+    cpp.weld();
+    size_t verts_after = cpp.positions.size() / 3;
+    if (verts_after == verts_before) return true; // Already welded: buffers are unchanged, keep them.
+
+    // 2. Vertex count changed: rebuild the vertex buffers in place. Presence of
+    //    each array mirrors the input (model_c_to_cpp copies 1:1).
+    model->num_vertices = (uint32_t)verts_after;
+
+    auto replace_f32 = [model](float** dst, const std::vector<float>& src) {
+        if (*dst) { free(*dst); *dst = nullptr; }
+        if (!src.empty()) {
+            *dst = (float*)malloc(src.size() * sizeof(float));
+            memcpy(*dst, src.data(), src.size() * sizeof(float));
+        }
+    };
+
+    replace_f32(&model->positions, cpp.positions);
+    replace_f32(&model->normals, cpp.normals);
+    replace_f32(&model->texcoords, cpp.texcoords);
+    replace_f32(&model->tangents, cpp.tangents);
+    replace_f32(&model->colors, cpp.colors);
+    replace_f32(&model->texcoords_1, cpp.texcoords_1);
+    replace_f32(&model->weights_0, cpp.weights_0);
+
+    if (model->joints_0) { free(model->joints_0); model->joints_0 = nullptr; }
+    if (!cpp.joints_0.empty()) {
+        model->joints_0 = (uint8_t*)malloc(cpp.joints_0.size() * sizeof(uint8_t));
+        memcpy(model->joints_0, cpp.joints_0.data(), cpp.joints_0.size() * sizeof(uint8_t));
+    }
+
+    // 3. Index buffer: same count, remapped values.
+    if (model->indices && cpp.indices.size() == model->num_indices) {
+        memcpy(model->indices, cpp.indices.data(), cpp.indices.size() * sizeof(uint32_t));
+    }
+
+    // 4. Mesh vertex ranges shifted; triangle ranges and everything else unchanged.
+    if (model->meshes && cpp.meshes.size() == model->num_meshes) {
+        for (uint32_t i = 0; i < model->num_meshes; ++i) {
+            model->meshes[i].first_vertex = cpp.meshes[i].first_vertex;
+            model->meshes[i].num_vertexes = cpp.meshes[i].num_vertexes;
+        }
+    }
     return true;
 }
 

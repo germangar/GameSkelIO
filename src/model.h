@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <iostream>
 #include <algorithm>
+#include <unordered_map>
 #include "iqm.h"
 #include "math_utils.h"
 #include "anim_cfg.h"
@@ -295,6 +296,113 @@ struct Model {
         }
         return true;
     }
+
+    // Deduplicate vertices ("welding"): merge vertices that carry the exact same
+    // attribute values and remap the index buffer, shrinking the vertex buffers.
+    //
+    // This undoes per-polygon-corner expansion done by loaders such as the FBX
+    // one (which emits one vertex per corner), restoring a shared, indexed
+    // vertex pool. Engines that extrude outlines along vertex normals need
+    // welded buffers: duplicated corners would defeat any adjacency-based
+    // smoothing and inflate the model.
+    //
+    // Strictly lossless by design:
+    //  - The weld key is compared BITWISE (exact float bits, no epsilon). Two
+    //    corners merge only if every active attribute is bit-identical, so
+    //    identical -0.0/+0.0 or NaN bit patterns that compare unequal as floats
+    //    simply stay split; over-welding (which would break UV seams and
+    //    skinning) is impossible.
+    //  - Skinning (joints_0/weights_0) is part of the key, so two corners at
+    //    the same position bound to different bones are never merged.
+    //  - Triangles are never removed; degenerate faces are a loader concern.
+    //
+    // Models with morph targets skip welding for now: morph deltas are
+    // per-vertex global arrays and remapping them needs extra bookkeeping.
+    void weld() {
+        if (morph_targets.empty() == false) return;
+        if (meshes.empty() || indices.empty()) return;
+
+        size_t max_vertexes = 0;
+        for (size_t mi = 0; mi < meshes.size(); ++mi)
+            max_vertexes = std::max(max_vertexes, (size_t)meshes[mi].num_vertexes);
+        if (max_vertexes == 0) return;
+
+        std::vector<float> new_positions, new_normals, new_texcoords, new_tangents,
+                           new_colors, new_texcoords_1, new_weights_0;
+        std::vector<uint8_t> new_joints_0;
+
+        for (size_t mi = 0; mi < meshes.size(); ++mi) {
+            Mesh& mesh = meshes[mi];
+            uint32_t base = mesh.first_vertex;
+            uint32_t nv = mesh.num_vertexes;
+
+            // Welded vertices are appended to the fresh buffers in mesh order,
+            // so this mesh's new range starts at the current end of the buffer.
+            uint32_t new_base = (uint32_t)new_positions.size() / 3;
+
+            std::unordered_map<std::string, uint32_t> welded;
+            std::vector<uint32_t> remap(nv, 0);
+
+            for (uint32_t v = 0; v < nv; ++v) {
+                uint32_t gv = base + v;
+                // Pack every active attribute's raw bits into the key.
+                std::string key;
+                key.reserve(128);
+                auto append = [&key](const void* data, size_t bytes) {
+                    key.append((const char*)data, bytes);
+                };
+                append(&positions[gv * 3], 3 * sizeof(float));
+                if (!normals.empty())    append(&normals[gv * 3], 3 * sizeof(float));
+                if (!tangents.empty())   append(&tangents[gv * 4], 4 * sizeof(float));
+                if (!colors.empty())     append(&colors[gv * 4], 4 * sizeof(float));
+                if (!texcoords.empty())  append(&texcoords[gv * 2], 2 * sizeof(float));
+                if (!texcoords_1.empty())append(&texcoords_1[gv * 2], 2 * sizeof(float));
+                if (!joints_0.empty())   append(&joints_0[gv * 4], 4 * sizeof(uint8_t));
+                if (!weights_0.empty())  append(&weights_0[gv * 4], 4 * sizeof(float));
+
+                auto it = welded.find(key);
+                if (it != welded.end()) {
+                    remap[v] = new_base + it->second;
+                    continue;
+                }
+                uint32_t local = (uint32_t)welded.size();
+                welded.emplace(std::move(key), local);
+                remap[v] = new_base + local;
+
+                uint32_t ngv = new_base + local;
+                for (int k = 0; k < 3; ++k) new_positions.push_back(positions[gv * 3 + k]);
+                if (!normals.empty())    for (int k = 0; k < 3; ++k) new_normals.push_back(normals[gv * 3 + k]);
+                if (!tangents.empty())   for (int k = 0; k < 4; ++k) new_tangents.push_back(tangents[gv * 4 + k]);
+                if (!colors.empty())     for (int k = 0; k < 4; ++k) new_colors.push_back(colors[gv * 4 + k]);
+                if (!texcoords.empty())  for (int k = 0; k < 2; ++k) new_texcoords.push_back(texcoords[gv * 2 + k]);
+                if (!texcoords_1.empty())for (int k = 0; k < 2; ++k) new_texcoords_1.push_back(texcoords_1[gv * 2 + k]);
+                if (!joints_0.empty())   for (int k = 0; k < 4; ++k) new_joints_0.push_back(joints_0[gv * 4 + k]);
+                if (!weights_0.empty())  for (int k = 0; k < 4; ++k) new_weights_0.push_back(weights_0[gv * 4 + k]);
+            }
+
+            // Remap this mesh's triangle range in the global index buffer.
+            for (uint32_t t = 0; t < mesh.num_triangles; ++t) {
+                uint32_t gi = mesh.first_triangle * 3 + t * 3;
+                for (int k = 0; k < 3; ++k) {
+                    uint32_t idx = indices[gi + k];
+                    if (idx >= base && idx < base + nv) indices[gi + k] = remap[idx - base];
+                }
+            }
+
+            mesh.first_vertex = new_base;
+            mesh.num_vertexes = (uint32_t)welded.size();
+        }
+
+        positions.swap(new_positions);
+        if (!normals.empty())     normals.swap(new_normals);
+        if (!tangents.empty())    tangents.swap(new_tangents);
+        if (!colors.empty())      colors.swap(new_colors);
+        if (!texcoords.empty())   texcoords.swap(new_texcoords);
+        if (!texcoords_1.empty()) texcoords_1.swap(new_texcoords_1);
+        if (!joints_0.empty())    joints_0.swap(new_joints_0);
+        if (!weights_0.empty())   weights_0.swap(new_weights_0);
+    }
+
 
     void reorder_skeleton() {
         if (validate_skeleton()) return;

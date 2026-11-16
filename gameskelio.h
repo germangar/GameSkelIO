@@ -17,7 +17,7 @@
 #ifndef GAMESKELIO_H
 #define GAMESKELIO_H
 
-#define GAMESKELIO_VERSION 4
+#define GAMESKELIO_VERSION 5
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -274,6 +274,22 @@ void gsk_compute_bounds(gs_model* model);
 bool gsk_validate_skeleton(gs_model* model);
 bool gsk_reorder_skeleton(gs_model* model);
 bool gsk_convert_orientation(gs_model* model, gs_coord_system target_orientation, gs_winding_order target_winding);
+
+/**
+ * Deduplicates ("welds") the vertex buffers of the model, merging vertices
+ * that carry bit-identical attribute values and remapping the index buffer.
+ *
+ * Loaders for the native formats (FBX, GLB, IQM, SKM) already run this
+ * automatically on import; call it explicitly for models built by other
+ * means (e.g. Assimp-based importers) that may expand vertices per polygon
+ * corner. Welding is strictly lossless (exact attribute comparison, skin
+ * data included in the key) and idempotent. Models with morph targets are
+ * left untouched.
+ *
+ * Returns false if the model is NULL, true otherwise (including when
+ * nothing needed merging).
+ */
+bool gsk_weld_model(gs_model* model);
 
 /**
  * Bakes a specific animation clip into a fixed-rate frame buffer.

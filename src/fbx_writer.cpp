@@ -28,6 +28,11 @@ bool write_fbx(const char* path, const Model& model_in, bool write_mesh, bool wr
     Model model = model_in;
     // Liberate FBX Writer: Automate conversion to Y-up CCW (Standard FBX)
     convert_orientation(model, GS_Y_UP_RIGHTHANDED, GS_WINDING_CCW);
+    // Skin clusters (TransformLink / Transform) and the BindPose record need
+    // the joints' global bind matrices. Some loaders (e.g. GLB) leave them to
+    // the consumer; without them the cluster loop reads past the end of
+    // world_matrices and crashes. Compute them from the skeleton if missing.
+    if (model.world_matrices.size() < model.joints.size()) model.compute_bind_pose();
     const Model& in = model; // Use the converted model for the rest of the export
 
     Fbx::Record file;
