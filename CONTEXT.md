@@ -210,6 +210,17 @@ Clip names appear as `<Armature>|<CLIP>` in Blender versus `RootNode|RootNode|<C
 round-trip — cosmetic, not a linking fault. Single-pose clips (`BOTH_DEAD1`, `UI_POSE`) look static
 by design.
 
+**Name preservation in `sanitize()` (18/11/2026):** FBX record names are written as
+`<name>\x00\x01<Class>`; the writer appends the class token, so the name only needs control/
+non-ASCII characters replaced — **never spaces**. The original `' ' → '_'` replacement renamed
+bones on export (`Bip01 Spine1` → `Bip01_Spine1`), and the game resolves animation.cfg
+`rootanim`/`tagmask` bones by exact name (`R_SkeletalGetAnimByName` in cgame), so every FBX
+round trip into the game broke the cfg lookups while the file itself still loaded and animated in
+gskelview. ufbx only replaces invalid UTF-8 bytes, so spaces survive the load; Maya renames its
+*own* nodes on import (space → `FBXASC032` escapes) — Maya-side cosmetics, the file keeps the
+true names. Note: the game's *shipped* assets use spaced bone names, so any Maya-targeted export
+variant (underscored names) must stay optional, never the default.
+
 ### 8.8 Accepted deviations — do not "correct" these
 
 Blender writes the same shapes and Maya accepts them; changing them risks regressions:
@@ -220,11 +231,26 @@ Blender writes the same shapes and Maya accepts them; changing them risks regres
 - Unnamed mesh `Model`s (`"\x00\x01Model"`); Maya names the nodes itself (`transform1`, `_ncl1_1`).
 - `TypedIndex` per `LayerElement`, second UV set as `LayerElementUV` index 1.
 
+### 8.8.1 FBX loader: the animation-stack filter keeps held poses
+
+`fbx_loader.cpp` filters imported animation stacks with a "surgical filter": a stack is kept when
+**more than one joint actually moves** (>1 joint with >1 keys). This exists to drop per-accessory
+noise stacks (Belt/Bracer-style actions that animate a single node). **Exception (18/11/2026):** a
+stack that keys the skeleton but moves *nothing* is a **held pose** (1-frame "death end" states
+like `BOTH_DEAD1/2/3`) and must be kept — the condition is
+`animated_joint_count > 1 || (animated_joint_count == 0 && has_keys)`.
+Without the exception the loader silently discarded takes the FBX *writer* had written correctly,
+and FBX→IQM round trips lost those clips — the game resolves player animations by name from the
+model's records (`cg_pmodels.cpp` / `R_SkeletalGetAnimByName`), so missing records break in-game
+animation. Symptom history: "tris FBX reload reports 47/50 clips" was this filter, not the writer.
+
 ### 8.9 Regression checklist
 
 1. `make -j8` clean.
 2. `tris.iqm` (repo root) → FBX → headless Maya: **34 joints, 1 mesh, 50 stacks** (Blender: 34
-   bones, 1 mesh, 50 actions).
+   bones, 1 mesh, 50 actions). And the round trip back: `tris.iqm` → FBX → (library FBX load) →
+   IQM must again list **50** animation records including `BOTH_DEAD1/2/3` (the loader's held-pose
+   exception; see 8.8.1).
 3. An MD3-based model (e.g. Warfork `rlauncher.md3`) → FBX and GLB: Maya world bounding boxes must
    agree with the GLB to rounding, and the long axis must be the same in both.
 4. Blender import (more forgiving, so necessary but not sufficient).

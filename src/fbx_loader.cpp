@@ -490,13 +490,25 @@ bool load_fbx_from_memory(const void* data, size_t size, Model& out) {
         // Surgical Filter: Count how many joints actually move in this stack.
         // Node-specific actions (Belt, Bracer, etc.) usually only move 1-2 joints.
         int animated_joint_count = 0;
+        bool has_keys = false;
         for (const auto& ba : ad.bones) {
             if (ba.translation.times.size() > 1 || ba.rotation.times.size() > 1 || ba.scale.times.size() > 1) {
                 animated_joint_count++;
             }
+            if (!ba.translation.times.empty() || !ba.rotation.times.empty() || !ba.scale.times.empty()) {
+                has_keys = true;
+            }
         }
 
-        if (animated_joint_count > 1) {
+        // Keep a stack when it is a real animation:
+        //  - more than one joint actually moves (normal actions; single-joint
+        //    node-specific noise stacks stay dropped, as before), or
+        //  - the stack keys the skeleton but nothing moves - a HELD POSE.
+        //    Held poses (e.g. 1-frame "death end" states) are legitimate
+        //    animations the game resolves by name; dropping them silently
+        //    breaks FBX round trips (writer writes the take, loader used to
+        //    discard it).
+        if (animated_joint_count > 1 || (animated_joint_count == 0 && has_keys)) {
             out.animations.push_back(ad);
         }
         

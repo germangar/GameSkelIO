@@ -9,9 +9,19 @@
 #include <cmath>
 #include <cstring>
 
+// FBX name properties are written as "<name>\x00\x01<Class>" - the writer appends
+// the class token itself, so the name only needs control/non-ASCII characters
+// replaced (same rule as the GLB writer's sanitize_name). Spaces MUST be
+// preserved: the game resolves bone and animation names exactly (animation.cfg
+// rootanim/tagmask, R_SkeletalGetAnimByName), and renaming "Bip01 Spine1" to
+// "Bip01_Spine1" on export broke every FBX round trip into the game. ufbx's
+// parser only replaces invalid UTF-8 bytes, so spaces survive the load too.
 static std::string sanitize(const std::string& s) {
     std::string res = s;
-    std::replace(res.begin(), res.end(), ' ', '_');
+    for (char& c : res) {
+        unsigned char uc = (unsigned char)c;
+        if (uc < 32 || uc > 126) c = '_';
+    }
     return res;
 }
 
